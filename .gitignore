@@ -1,0 +1,36 @@
+# Build
+build/
+cmake-build-*/
+out/
+dist/
+*.app/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+install_manifest.txt
+
+# IDE / OS
+.idea/
+.vscode/
+*.xcodeproj/
+*.xcworkspace/
+.DS_Store
+*.user
+*.autosave
+
+# Compiled artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+
+# Local / secrets
+.env
+.env.*
+*.local
