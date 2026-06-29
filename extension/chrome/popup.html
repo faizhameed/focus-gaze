@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: system-ui, sans-serif; min-width: 260px; margin: 12px; }
+      label { display: block; margin-top: 8px; font-size: 12px; }
+      input { width: 100%; box-sizing: border-box; }
+      button { margin-top: 12px; width: 100%; }
+      .hint { font-size: 11px; color: #555; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <strong>focusGaze Bridge</strong>
+    <label>Port <input id="port" type="number" /></label>
+    <label>Token <input id="token" type="text" autocomplete="off" /></label>
+    <label><input id="enabled" type="checkbox" /> Enabled</label>
+    <button id="save">Save</button>
+    <p class="hint">Copy token from <code>settings-show</code> / settings.json (<code>bridge_token</code>).</p>
+    <script src="popup.js"></script>
+  </body>
+</html>

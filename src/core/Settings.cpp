@@ -5,6 +5,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <random>
+#include <sstream>
+
 namespace focusgaze {
 namespace {
 
@@ -112,12 +115,37 @@ bool Settings::saveToFile(const std::filesystem::path& path) const {
   return fsutil::writeTextFile(path, toJsonString(2) + "\n");
 }
 
+namespace {
+
+std::string generateBridgeToken() {
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::random_device rd;
+  std::mt19937_64 gen(rd());
+  std::uniform_int_distribution<int> dist(0, 15);
+  std::string out;
+  out.reserve(32);
+  for (int i = 0; i < 32; ++i) {
+    out.push_back(kHex[dist(gen)]);
+  }
+  return out;
+}
+
+} // namespace
+
 Settings loadOrCreateSettings() {
   PlatformPaths::ensureDataLayout();
   Settings settings = Settings::defaults();
   const auto path = PlatformPaths::settingsPath();
+  bool dirty = false;
   if (!settings.loadFromFile(path)) {
     // Missing or corrupt: write defaults for a clean first run.
+    dirty = true;
+  }
+  if (settings.bridge_token.empty()) {
+    settings.bridge_token = generateBridgeToken();
+    dirty = true;
+  }
+  if (dirty) {
     (void)settings.saveToFile(path);
   }
   return settings;

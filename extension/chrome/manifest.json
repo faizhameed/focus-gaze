@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "focusGaze Bridge",
+  "version": "0.2.0",
+  "description": "Sends active tab URLs to the local focusGaze app for focus monitoring.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "focusGaze Bridge",
+    "default_popup": "popup.html"
+  }
+}
