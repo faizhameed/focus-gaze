@@ -334,4 +334,57 @@ std::vector<UrlEventRecord> Storage::listUrlEventsForSession(std::int64_t sessio
   return out;
 }
 
+std::int64_t Storage::insertPhoneEvent(std::optional<std::int64_t> session_id,
+                                       EpochSeconds started_at,
+                                       std::optional<EpochSeconds> ended_at, double confidence) {
+  if (!isOpen()) {
+    throw StorageError("database is not open");
+  }
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "INSERT INTO phone_events(session_id, started_at, ended_at, confidence) VALUES(?,?,?,?);";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  if (session_id) {
+    sqlite3_bind_int64(stmt, 1, *session_id);
+  } else {
+    sqlite3_bind_null(stmt, 1);
+  }
+  sqlite3_bind_int64(stmt, 2, started_at);
+  if (ended_at) {
+    sqlite3_bind_int64(stmt, 3, *ended_at);
+  } else {
+    sqlite3_bind_null(stmt, 3);
+  }
+  sqlite3_bind_double(stmt, 4, confidence);
+  if (sqlite3_step(stmt) != SQLITE_DONE) {
+    const std::string msg = sqlite3_errmsg(db_);
+    sqlite3_finalize(stmt);
+    throw StorageError(msg);
+  }
+  sqlite3_finalize(stmt);
+  return sqlite3_last_insert_rowid(db_);
+}
+
+std::int64_t Storage::sumPhoneSecondsForSession(std::int64_t session_id) const {
+  if (!isOpen()) {
+    throw StorageError("database is not open");
+  }
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "SELECT COALESCE(SUM(CASE WHEN ended_at IS NOT NULL AND ended_at > started_at "
+      "THEN ended_at - started_at ELSE 0 END), 0) FROM phone_events WHERE session_id = ?;";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  sqlite3_bind_int64(stmt, 1, session_id);
+  std::int64_t total = 0;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    total = sqlite3_column_int64(stmt, 0);
+  }
+  sqlite3_finalize(stmt);
+  return total;
+}
+
 } // namespace focusgaze

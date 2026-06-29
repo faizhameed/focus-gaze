@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(focusGaze VERSION 0.3.0 LANGUAGES CXX)
+project(focusGaze VERSION 0.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,6 +28,17 @@ FetchContent_MakeAvailable(httplib)
 find_package(SQLite3 REQUIRED)
 find_package(Threads REQUIRED)
 
+# OpenCV optional (camera + overlay)
+set(OpenCV_DIR "/opt/homebrew/opt/opencv/lib/cmake/opencv4" CACHE PATH "OpenCV config")
+find_package(OpenCV QUIET COMPONENTS core imgproc videoio highgui)
+if(OpenCV_FOUND)
+  message(STATUS "OpenCV found: ${OpenCV_VERSION} — camera + overlay enabled")
+  set(FOCUSGAZE_HAS_OPENCV 1)
+else()
+  message(STATUS "OpenCV not found — camera/overlay use stubs (inject still works)")
+  set(FOCUSGAZE_HAS_OPENCV 0)
+endif()
+
 set(FOCUSGAZE_CORE_SOURCES
   src/core/Settings.cpp
   src/core/Storage.cpp
@@ -39,7 +50,10 @@ set(FOCUSGAZE_CORE_SOURCES
   src/core/BrowserMonitor.cpp
   src/core/PhonePresenceTracker.cpp
   src/core/PhoneMonitor.cpp
+  src/core/AlarmPresenter.cpp
+  src/core/ProductivityStats.cpp
   src/vision/VisionLoop.cpp
+  src/vision/CameraSource.cpp
   src/bridge/HttpBrowserBridge.cpp
 )
 
@@ -63,6 +77,11 @@ target_link_libraries(focusgaze_core
     SQLite3::SQLite3
     Threads::Threads
 )
+if(FOCUSGAZE_HAS_OPENCV)
+  target_include_directories(focusgaze_core PUBLIC ${OpenCV_INCLUDE_DIRS})
+  target_link_libraries(focusgaze_core PUBLIC ${OpenCV_LIBS})
+  target_compile_definitions(focusgaze_core PUBLIC FOCUSGAZE_HAS_OPENCV=1)
+endif()
 target_compile_definitions(focusgaze_core
   PUBLIC
     FOCUSGAZE_VERSION="${PROJECT_VERSION}"
@@ -100,6 +119,7 @@ if(FOCUSGAZE_BUILD_TESTS)
     tests/test_http_bridge.cpp
     tests/test_phone_presence.cpp
     tests/test_phone_monitor.cpp
+    tests/test_productivity_stats.cpp
   )
   target_link_libraries(focusgaze_tests PRIVATE focusgaze_core Catch2::Catch2WithMain)
   include(CTest)

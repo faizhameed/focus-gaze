@@ -47,6 +47,11 @@ public:
   std::vector<UrlEventRecord> listUrlEventsForSession(std::int64_t session_id,
                                                      std::size_t limit = 1000) const;
 
+  // --- Phone intervals (Phase 3 / stats) ---
+  std::int64_t insertPhoneEvent(std::optional<std::int64_t> session_id, EpochSeconds started_at,
+                                std::optional<EpochSeconds> ended_at, double confidence = 1.0);
+  std::int64_t sumPhoneSecondsForSession(std::int64_t session_id) const;
+
 private:
   void migrate();
   void execOrThrow(const char* sql) const;

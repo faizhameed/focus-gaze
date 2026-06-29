@@ -46,12 +46,16 @@ void PhoneMonitor::sample(EpochSeconds now, bool phone_visible) {
     return;
   }
 
-  // Persist closed phone intervals
+  // Persist closed phone intervals for stats
   if (last_visible_ && !phone_visible && interval_start_) {
     try {
-      // Reuse phone_events via raw SQL would need Storage API — insert via minimal extension
-      // For Phase 3 we only update alarms; Storage phone_events insert can be added if needed.
-      (void)storage_;
+      std::optional<std::int64_t> sid;
+      if (auto s = focus_.activeSession()) {
+        sid = s->id;
+      } else if (auto open = storage_.getActiveSession()) {
+        sid = open->id;
+      }
+      storage_.insertPhoneEvent(sid, *interval_start_, now, 1.0);
     } catch (...) {
     }
     interval_start_.reset();
