@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(focusGaze VERSION 0.2.0 LANGUAGES CXX)
+project(focusGaze VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,7 +17,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
-# cpp-httplib (header-only)
 FetchContent_Declare(
   httplib
   GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
@@ -38,6 +37,9 @@ set(FOCUSGAZE_CORE_SOURCES
   src/core/UrlClassifier.cpp
   src/core/AlarmController.cpp
   src/core/BrowserMonitor.cpp
+  src/core/PhonePresenceTracker.cpp
+  src/core/PhoneMonitor.cpp
+  src/vision/VisionLoop.cpp
   src/bridge/HttpBrowserBridge.cpp
 )
 
@@ -65,7 +67,6 @@ target_compile_definitions(focusgaze_core
   PUBLIC
     FOCUSGAZE_VERSION="${PROJECT_VERSION}"
 )
-# Do not define CPPHTTPLIB_OPENSSL_SUPPORT — we only use http://127.0.0.1 (no OpenSSL link).
 
 if(MSVC)
   target_compile_options(focusgaze_core PRIVATE /W4 /permissive-)
@@ -97,6 +98,8 @@ if(FOCUSGAZE_BUILD_TESTS)
     tests/test_alarm_controller.cpp
     tests/test_browser_monitor.cpp
     tests/test_http_bridge.cpp
+    tests/test_phone_presence.cpp
+    tests/test_phone_monitor.cpp
   )
   target_link_libraries(focusgaze_tests PRIVATE focusgaze_core Catch2::Catch2WithMain)
   include(CTest)

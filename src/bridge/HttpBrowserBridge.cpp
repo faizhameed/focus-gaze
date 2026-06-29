@@ -1,5 +1,8 @@
 #include "bridge/HttpBrowserBridge.hpp"
 
+#include "core/PhoneMonitor.hpp"
+#include "vision/VisionLoop.hpp"
+
 #include "core/UrlClassifier.hpp"
 
 #include <httplib.h>
@@ -73,7 +76,7 @@ BrowserUrlEvent parseEvent(const json& body) {
   return ev;
 }
 
-json statusToJson(const MonitorStatus& st) {
+json statusToJson(const MonitorStatus& st, const PhoneStatus* phone = nullptr) {
   json j;
   j["focus_on"] = st.focus_on;
   j["alarm_active"] = st.alarm_active;
@@ -87,13 +90,25 @@ json statusToJson(const MonitorStatus& st) {
   j["last_url"] = st.last_url;
   j["last_domain"] = st.last_domain;
   j["last_category"] = st.last_category;
+  if (phone) {
+    j["phone_visible"] = phone->phone_visible;
+    j["phone_cumulative_seconds"] = phone->cumulative_visible_seconds;
+    j["phone_threshold_seconds"] = phone->threshold_seconds;
+    j["phone_window_seconds"] = phone->window_seconds;
+    j["phone_alarm"] = phone->phone_alarm;
+  }
   return j;
 }
 
 } // namespace
 
-HttpBrowserBridge::HttpBrowserBridge(BrowserMonitor& monitor, std::string token, int port)
-    : monitor_(monitor), token_(std::move(token)), port_(port) {}
+HttpBrowserBridge::HttpBrowserBridge(BrowserMonitor& monitor, std::string token, int port,
+                                    PhoneMonitor* phone, VisionLoop* vision)
+    : monitor_(monitor),
+      phone_(phone),
+      vision_(vision),
+      token_(std::move(token)),
+      port_(port) {}
 
 HttpBrowserBridge::~HttpBrowserBridge() { stop(); }
 
@@ -119,7 +134,16 @@ bool HttpBrowserBridge::start() {
       res.set_content(R"({"error":"unauthorized"})", "application/json");
       return;
     }
-    res.set_content(statusToJson(monitor_.status()).dump(), "application/json");
+    PhoneStatus pst{};
+    PhoneStatus* pptr = nullptr;
+    if (phone_) {
+      const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+      pst = phone_->status(now);
+      pptr = &pst;
+    }
+    res.set_content(statusToJson(monitor_.status(), pptr).dump(), "application/json");
   });
 
   auto handle_url = [this](const httplib::Request& req, httplib::Response& res) {
@@ -142,7 +166,21 @@ bool HttpBrowserBridge::start() {
     const auto ev = parseEvent(body);
     const bool ok = monitor_.handleEvent(ev);
     const auto st = monitor_.status();
-    json out = statusToJson(st);
+    PhoneStatus pst{};
+    PhoneStatus* pptr = nullptr;
+    if (phone_) {
+      pst = phone_->status(st.focus_on ? (
+          std::chrono::duration_cast<std::chrono::seconds>(
+              std::chrono::system_clock::now().time_since_epoch())
+              .count()) : 0);
+      // always use real now
+      const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+      pst = phone_->status(now);
+      pptr = &pst;
+    }
+    json out = statusToJson(st, pptr);
     out["accepted"] = ok;
 
     const char* ev_name = toString(ev.event);
@@ -178,6 +216,57 @@ bool HttpBrowserBridge::start() {
 
   server->Post("/v1/url", handle_url);
   server->Post("/v1/events/url", handle_url);
+
+  server->Post("/v1/phone", [this](const httplib::Request& req, httplib::Response& res) {
+    if (!authorized(req, token_)) {
+      logLine("POST /v1/phone unauthorized");
+      res.status = 401;
+      res.set_content(R"({"error":"unauthorized"})", "application/json");
+      return;
+    }
+    if (!phone_) {
+      res.status = 503;
+      res.set_content(R"({"error":"phone_monitor_unavailable"})", "application/json");
+      return;
+    }
+    json body;
+    try {
+      body = json::parse(req.body.empty() ? "{}" : req.body);
+    } catch (const json::parse_error&) {
+      res.status = 400;
+      res.set_content(R"({"error":"invalid_json"})", "application/json");
+      return;
+    }
+    bool visible = false;
+    if (body.contains("visible") && body["visible"].is_boolean()) {
+      visible = body["visible"].get<bool>();
+    }
+    EpochSeconds ts = 0;
+    if (body.contains("ts") && body["ts"].is_number_integer()) {
+      ts = body["ts"].get<std::int64_t>();
+    } else {
+      ts = std::chrono::duration_cast<std::chrono::seconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+               .count();
+    }
+    if (vision_) {
+      vision_->setInjectedVisibility(visible);
+    }
+    phone_->sample(ts, visible);
+    const auto pst = phone_->status(ts);
+    const auto bst = monitor_.status();
+    logLine(std::string("phone visible=") + (visible ? "true" : "false") +
+            " cumulative_s=" + std::to_string(pst.cumulative_visible_seconds) +
+            " phone_alarm=" + (pst.phone_alarm ? "on" : "off") +
+            " alarm=" + (bst.alarm_active ? "on" : "off"));
+    if (pst.phone_alarm) {
+      logLine("ALARM active reason=phone_window cumulative_s=" +
+              std::to_string(pst.cumulative_visible_seconds));
+    }
+    json out = statusToJson(bst, &pst);
+    out["accepted"] = true;
+    res.set_content(out.dump(), "application/json");
+  });
 
   thread_ = std::thread([this, server]() {
     running_ = true;

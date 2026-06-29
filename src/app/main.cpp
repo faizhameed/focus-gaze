@@ -1,14 +1,17 @@
 #include "bridge/HttpBrowserBridge.hpp"
 #include "core/BrowserMonitor.hpp"
 #include "core/FocusSession.hpp"
+#include "core/PhoneMonitor.hpp"
 #include "core/PlatformPaths.hpp"
 #include "core/Settings.hpp"
 #include "core/Storage.hpp"
+#include "vision/VisionLoop.hpp"
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
@@ -24,25 +27,31 @@ void onSignal(int) { g_stop = true; }
 
 void printUsage(const char* argv0) {
   std::cerr
-      << "focusGaze CLI (Phase 2)\n"
+      << "focusGaze CLI (Phase 2–3)\n"
       << "Usage:\n"
-      << "  " << argv0 << " status\n"
-      << "  " << argv0 << " on | off | toggle\n"
-      << "  " << argv0 << " settings-show\n"
-      << "  " << argv0 << " reconcile\n"
-      << "  " << argv0 << " serve          # run HTTP bridge (blocks)\n"
-      << "\nNotes:\n"
-      << "  Alarm state lives in the `serve` process. `status` queries the live bridge\n"
-      << "  when it is running (same FOCUSGAZE_DATA_DIR / settings token).\n"
+      << "  " << argv0 << " status | on | off | toggle | settings-show | reconcile\n"
+      << "  " << argv0 << " serve          # HTTP bridge + phone vision loop\n"
+      << "\nPhone inject (while serve runs):\n"
+      << "  POST /v1/phone {\"visible\":true|false,\"ts\":<epoch>}\n"
+      << "  FOCUSGAZE_PHONE_VISIBLE=1  — treat camera source as always phone-visible\n"
+      << "  FOCUSGAZE_TIME_SCALE=10    — reserved for tests (inject ts yourself for now)\n"
       << "\nEnvironment:\n"
-      << "  FOCUSGAZE_DATA_DIR  Override data root (settings + SQLite)\n";
+      << "  FOCUSGAZE_DATA_DIR  Override data root\n"
+      << "  FOCUSGAZE_QUIET=1   Silence event logs\n";
+}
+
+focusgaze::EpochSeconds wallNow() {
+  return std::chrono::duration_cast<std::chrono::seconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
 }
 
 struct AppContext {
   focusgaze::Settings settings;
   focusgaze::Storage storage;
   focusgaze::FocusSessionManager focus;
-  focusgaze::BrowserMonitor monitor;
+  focusgaze::BrowserMonitor browser;
+  focusgaze::PhoneMonitor phone;
 
   static focusgaze::Storage openStorage() {
     focusgaze::Storage db(focusgaze::PlatformPaths::databasePath());
@@ -54,7 +63,8 @@ struct AppContext {
       : settings(focusgaze::loadOrCreateSettings()),
         storage(openStorage()),
         focus(storage, settings),
-        monitor(storage, focus, settings) {}
+        browser(storage, focus, settings),
+        phone(storage, focus, browser.alarms(), settings) {}
 };
 
 struct LiveStatus {
@@ -67,15 +77,17 @@ struct LiveStatus {
   std::string last_domain;
   std::string last_category;
   bool from_bridge{false};
+  bool phone_visible{false};
+  std::int64_t phone_cumulative{0};
+  bool phone_alarm{false};
 };
 
-/// Prefer live `serve` process status over this process's empty in-memory monitor.
 std::optional<LiveStatus> fetchLiveBridgeStatus(const focusgaze::Settings& settings) {
   if (settings.bridge_token.empty() || settings.bridge_port <= 0) {
     return std::nullopt;
   }
   httplib::Client client("127.0.0.1", settings.bridge_port);
-  client.set_connection_timeout(0, 200000); // 200ms
+  client.set_connection_timeout(0, 200000);
   client.set_read_timeout(1, 0);
   httplib::Headers headers{{"Authorization", "Bearer " + settings.bridge_token}};
   auto res = client.Get("/v1/status", headers);
@@ -92,6 +104,9 @@ std::optional<LiveStatus> fetchLiveBridgeStatus(const focusgaze::Settings& setti
     st.last_url = j.value("last_url", "");
     st.last_domain = j.value("last_domain", "");
     st.last_category = j.value("last_category", "");
+    st.phone_visible = j.value("phone_visible", false);
+    st.phone_cumulative = j.value("phone_cumulative_seconds", 0);
+    st.phone_alarm = j.value("phone_alarm", false);
     if (j.contains("session_id") && !j["session_id"].is_null()) {
       st.session_id = j["session_id"].get<std::int64_t>();
     }
@@ -106,6 +121,11 @@ std::optional<LiveStatus> fetchLiveBridgeStatus(const focusgaze::Settings& setti
   } catch (...) {
     return std::nullopt;
   }
+}
+
+bool envPhoneAlwaysVisible() {
+  const char* v = std::getenv("FOCUSGAZE_PHONE_VISIBLE");
+  return v != nullptr && v[0] != '\0' && v[0] != '0';
 }
 
 } // namespace
@@ -137,7 +157,8 @@ int main(int argc, char** argv) {
       if (auto live = fetchLiveBridgeStatus(app.settings)) {
         st = *live;
       } else {
-        const auto local = app.monitor.status();
+        const auto local = app.browser.status();
+        const auto ph = app.phone.status(wallNow());
         st.focus_on = local.focus_on;
         st.alarm_active = local.alarm_active;
         st.alarm_reasons = local.alarm_reasons;
@@ -146,6 +167,9 @@ int main(int argc, char** argv) {
         st.last_url = local.last_url;
         st.last_domain = local.last_domain;
         st.last_category = local.last_category;
+        st.phone_visible = ph.phone_visible;
+        st.phone_cumulative = ph.cumulative_visible_seconds;
+        st.phone_alarm = ph.phone_alarm;
         st.from_bridge = false;
       }
 
@@ -158,9 +182,12 @@ int main(int argc, char** argv) {
                 << "status_source=" << (st.from_bridge ? "live_bridge" : "local_process") << "\n"
                 << "focus=" << (st.focus_on ? "on" : "off") << "\n"
                 << "alarm=" << (st.alarm_active ? "on" : "off") << "\n"
-                << "blocked_tabs=" << st.blocked_tab_count << "\n";
+                << "blocked_tabs=" << st.blocked_tab_count << "\n"
+                << "phone_visible=" << (st.phone_visible ? "yes" : "no") << "\n"
+                << "phone_cumulative_s=" << st.phone_cumulative << "\n"
+                << "phone_alarm=" << (st.phone_alarm ? "on" : "off") << "\n";
       if (!st.from_bridge) {
-        std::cout << "note=start `focusgaze serve` for live alarm status from extension events\n";
+        std::cout << "note=start `focusgaze serve` for live alarm/phone status\n";
       }
       if (!st.alarm_reasons.empty()) {
         std::cout << "alarm_reasons=";
@@ -177,13 +204,6 @@ int main(int argc, char** argv) {
         std::cout << "last_url=" << st.last_url << "\n"
                   << "last_domain=" << st.last_domain << "\n"
                   << "last_category=" << st.last_category << "\n";
-      }
-      const auto sessions = app.storage.listSessions(5);
-      std::cout << "recent_sessions=" << sessions.size() << "\n";
-      for (const auto& s : sessions) {
-        std::cout << "  id=" << s.id << " start=" << s.started_at << " end="
-                  << (s.ended_at ? std::to_string(*s.ended_at) : std::string("null"))
-                  << "\n";
       }
       std::cout << "blocklist_size=" << app.settings.blocklist.size() << "\n";
       return 0;
@@ -203,7 +223,8 @@ int main(int argc, char** argv) {
         std::cout << "already off\n";
         return 0;
       }
-      app.monitor.onFocusTurnedOff();
+      app.browser.onFocusTurnedOff();
+      app.phone.onFocusTurnedOff();
       std::cout << "focus off\n";
       return 0;
     }
@@ -211,7 +232,8 @@ int main(int argc, char** argv) {
     if (cmd == "toggle") {
       const bool on = app.focus.toggle();
       if (!on) {
-        app.monitor.onFocusTurnedOff();
+        app.browser.onFocusTurnedOff();
+        app.phone.onFocusTurnedOff();
       }
       std::cout << "focus " << (on ? "on" : "off") << "\n";
       return 0;
@@ -226,16 +248,20 @@ int main(int argc, char** argv) {
       std::signal(SIGINT, onSignal);
       std::signal(SIGTERM, onSignal);
 
-      // Refresh focus from DB in case `on` was run in another process already.
       app.focus.syncFromStorage();
 
-      focusgaze::HttpBrowserBridge bridge(app.monitor, app.settings.bridge_token,
-                                          app.settings.bridge_port);
+      auto visibility = []() -> bool { return envPhoneAlwaysVisible(); };
+      focusgaze::VisionLoop vision(app.phone, visibility, wallNow, 500);
+
+      focusgaze::HttpBrowserBridge bridge(app.browser, app.settings.bridge_token,
+                                          app.settings.bridge_port, &app.phone, &vision);
       if (!bridge.start()) {
         std::cerr << "Failed to start bridge on 127.0.0.1:" << app.settings.bridge_port
-                  << " (check token/port)\n";
+                  << "\n";
         return 1;
       }
+      vision.start();
+
       const bool focus_on =
           app.focus.isFocusOn() || app.storage.getActiveSession().has_value();
       std::cout << "focusGaze bridge listening on http://127.0.0.1:" << app.settings.bridge_port
@@ -244,18 +270,21 @@ int main(int argc, char** argv) {
                 << "focus=" << (focus_on ? "on" : "off") << "\n"
                 << "blocklist_file=" << focusgaze::PlatformPaths::blocklistPath() << "\n"
                 << "blocklist_size=" << app.settings.blocklist.size() << "\n"
-                << "logging=on (set FOCUSGAZE_QUIET=1 to silence event logs)\n"
-                << "POST /v1/url  GET /v1/status  GET /v1/health\n"
-                << "Waiting for extension events...\n"
+                << "phone_threshold_s=" << app.settings.phone_threshold_seconds << "\n"
+                << "phone_window_s=" << app.settings.phone_window_seconds << "\n"
+                << "POST /v1/url  POST /v1/phone  GET /v1/status  GET /v1/health\n"
+                << "Waiting for events (extension + phone inject)...\n"
                 << "Ctrl+C to stop\n"
                 << std::flush;
       if (!focus_on) {
         std::cout << "[focusGaze] warning: focus is OFF — run: ./build/focusgaze on\n"
                   << std::flush;
       }
+
       while (!g_stop.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
       }
+      vision.stop();
       bridge.stop();
       std::cout << "stopped\n";
       return 0;
