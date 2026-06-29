@@ -66,6 +66,10 @@ std::filesystem::path PlatformPaths::logsDir() {
   return dataRoot() / "logs";
 }
 
+std::filesystem::path PlatformPaths::blocklistPath() {
+  return dataRoot() / "blocklist.txt";
+}
+
 bool PlatformPaths::ensureDataLayout() {
   const auto root = dataRoot();
   if (!fsutil::ensureDirectory(root)) {

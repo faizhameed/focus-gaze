@@ -1,5 +1,6 @@
 #include "core/Settings.hpp"
 
+#include "core/DefaultBlocklist.hpp"
 #include "core/FileSystem.hpp"
 #include "core/PlatformPaths.hpp"
 
@@ -34,7 +35,9 @@ std::vector<std::string> stringVectorFromJson(const json& j) {
 } // namespace
 
 Settings Settings::defaults() {
-  return Settings{};
+  Settings s;
+  s.blocklist = seedBlocklistDomains();
+  return s;
 }
 
 std::string Settings::toJsonString(int indent) const {
@@ -138,13 +141,15 @@ Settings loadOrCreateSettings() {
   const auto path = PlatformPaths::settingsPath();
   bool dirty = false;
   if (!settings.loadFromFile(path)) {
-    // Missing or corrupt: write defaults for a clean first run.
     dirty = true;
   }
+  // Authoritative blocklist is blocklist.txt (auto-seeded if missing; never overwritten).
+  settings.blocklist = loadOrCreateBlocklist();
   if (settings.bridge_token.empty()) {
     settings.bridge_token = generateBridgeToken();
     dirty = true;
   }
+  // Keep settings.json blocklist in sync for visibility, but file remains source of truth on load.
   if (dirty) {
     (void)settings.saveToFile(path);
   }

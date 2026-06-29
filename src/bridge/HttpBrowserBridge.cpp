@@ -1,16 +1,33 @@
 #include "bridge/HttpBrowserBridge.hpp"
 
+#include "core/UrlClassifier.hpp"
+
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
+#include <sstream>
 #include <utility>
 
 namespace focusgaze {
 namespace {
 
 using nlohmann::json;
+
+bool quietLogs() {
+  const char* q = std::getenv("FOCUSGAZE_QUIET");
+  return q != nullptr && q[0] != '\0' && q[0] != '0';
+}
+
+void logLine(const std::string& msg) {
+  if (quietLogs()) {
+    return;
+  }
+  // Use cout + flush so lines show up immediately in the serve terminal.
+  std::cout << "[focusGaze] " << msg << std::endl;
+}
 
 bool authorized(const httplib::Request& req, const std::string& token) {
   if (token.empty()) {
@@ -21,7 +38,6 @@ bool authorized(const httplib::Request& req, const std::string& token) {
   if (auth.size() > prefix.size() && auth.compare(0, prefix.size(), prefix) == 0) {
     return auth.substr(prefix.size()) == token;
   }
-  // Also accept X-FocusGaze-Token for simpler extension code
   const auto alt = req.get_header_value("X-FocusGaze-Token");
   return alt == token;
 }
@@ -98,6 +114,7 @@ bool HttpBrowserBridge::start() {
 
   server->Get("/v1/status", [this](const httplib::Request& req, httplib::Response& res) {
     if (!authorized(req, token_)) {
+      logLine("GET /v1/status unauthorized (check extension token)");
       res.status = 401;
       res.set_content(R"({"error":"unauthorized"})", "application/json");
       return;
@@ -107,6 +124,7 @@ bool HttpBrowserBridge::start() {
 
   auto handle_url = [this](const httplib::Request& req, httplib::Response& res) {
     if (!authorized(req, token_)) {
+      logLine("POST /v1/url unauthorized (check extension token matches settings)");
       res.status = 401;
       res.set_content(R"({"error":"unauthorized"})", "application/json");
       return;
@@ -115,22 +133,46 @@ bool HttpBrowserBridge::start() {
     try {
       body = json::parse(req.body.empty() ? "{}" : req.body);
     } catch (const json::parse_error&) {
+      logLine("POST /v1/url invalid JSON");
       res.status = 400;
       res.set_content(R"({"error":"invalid_json"})", "application/json");
       return;
     }
+    const bool was_active = monitor_.status().alarm_active;
     const auto ev = parseEvent(body);
     const bool ok = monitor_.handleEvent(ev);
-    json out = statusToJson(monitor_.status());
+    const auto st = monitor_.status();
+    json out = statusToJson(st);
     out["accepted"] = ok;
-    if (monitor_.status().alarm_active) {
-      // Log sticky alarm for CLI / operators (no GUI overlay yet)
-      std::cerr << "[focusGaze] ALARM active reasons=";
-      for (const auto& r : monitor_.status().alarm_reasons) {
-        std::cerr << r << " ";
-      }
-      std::cerr << "blocked_tabs=" << monitor_.status().blocked_tab_count << "\n";
+
+    const char* ev_name = toString(ev.event);
+    std::string domain = st.last_domain;
+    if (domain.empty() && !ev.url.empty()) {
+      domain = UrlClassifier::extractDomain(ev.url);
     }
+
+    // Always log each event so the serve terminal stays lively while debugging.
+    {
+      std::ostringstream line;
+      line << "event=" << ev_name << " tab=" << (ev.tab_id.empty() ? "-" : ev.tab_id)
+           << " domain=" << (domain.empty() ? "-" : domain)
+           << " category=" << (st.last_category.empty() ? "-" : st.last_category)
+           << " focus=" << (st.focus_on ? "on" : "off")
+           << " alarm=" << (st.alarm_active ? "on" : "off")
+           << " blocked_tabs=" << st.blocked_tab_count;
+      if (!st.focus_on) {
+        line << " (focus off — not enforcing)";
+      }
+      logLine(line.str());
+    }
+
+    if (st.alarm_active && !was_active) {
+      logLine("ALARM active blocked_tabs=" + std::to_string(st.blocked_tab_count) +
+              (domain.empty() ? "" : " domain=" + domain));
+    } else if (!st.alarm_active && was_active) {
+      logLine("ALARM cleared (no blocked tabs remain)");
+    }
+
     res.set_content(out.dump(), "application/json");
   };
 
@@ -139,19 +181,16 @@ bool HttpBrowserBridge::start() {
 
   thread_ = std::thread([this, server]() {
     running_ = true;
-    // listen blocks until stop
     server->listen(kBindHost, port_);
     running_ = false;
   });
 
-  // Wait briefly for listen to bind
   for (int i = 0; i < 50; ++i) {
     if (server->is_running()) {
       return true;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
-  // Might still be starting; check port with a health client
   httplib::Client client(kBindHost, port_);
   client.set_connection_timeout(0, 200000);
   for (int i = 0; i < 25; ++i) {

@@ -34,6 +34,7 @@ set(FOCUSGAZE_CORE_SOURCES
   src/core/Storage.cpp
   src/core/FocusSession.cpp
   src/core/FileSystem.cpp
+  src/core/DefaultBlocklist.cpp
   src/core/UrlClassifier.cpp
   src/core/AlarmController.cpp
   src/core/BrowserMonitor.cpp
@@ -89,6 +90,7 @@ if(FOCUSGAZE_BUILD_TESTS)
   add_executable(focusgaze_tests
     tests/test_platform_paths.cpp
     tests/test_settings.cpp
+    tests/test_blocklist_file.cpp
     tests/test_storage.cpp
     tests/test_focus_session.cpp
     tests/test_url_classifier.cpp

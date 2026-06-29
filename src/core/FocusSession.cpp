@@ -17,6 +17,10 @@ FocusSessionManager::FocusSessionManager(Storage& storage, Settings settings,
 }
 
 void FocusSessionManager::syncFromStorage() {
+  if (!storage_.isOpen()) {
+    active_.reset();
+    return;
+  }
   active_ = storage_.getActiveSession();
 }
 

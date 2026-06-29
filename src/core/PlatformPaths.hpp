@@ -18,6 +18,8 @@ public:
   static std::filesystem::path settingsPath();
   static std::filesystem::path databasePath();
   static std::filesystem::path logsDir();
+  /// User-editable blocked domains (auto-created with a small seed if missing).
+  static std::filesystem::path blocklistPath();
 
   /// Ensure dataRoot (and logs) exist. Returns false if directories cannot be created.
   static bool ensureDataLayout();

@@ -36,7 +36,8 @@ bool BrowserMonitor::handleEvent(const BrowserUrlEvent& event) {
   std::lock_guard lock(mutex_);
 
   const EpochSeconds ts = event.ts.value_or(now());
-  const bool focus_on = focus_.isFocusOn();
+  // Prefer DB as source of truth so `focusgaze on` in another process works while `serve` runs.
+  const bool focus_on = storage_.getActiveSession().has_value() || focus_.isFocusOn();
 
   if (event.event == UrlEventType::Closed) {
     if (event.tab_id.empty()) {
@@ -127,7 +128,7 @@ bool BrowserMonitor::handleEvent(const BrowserUrlEvent& event) {
 MonitorStatus BrowserMonitor::status() const {
   std::lock_guard lock(mutex_);
   MonitorStatus st;
-  st.focus_on = focus_.isFocusOn();
+  st.focus_on = storage_.getActiveSession().has_value() || focus_.isFocusOn();
   st.alarm_active = alarms_.isActive();
   for (const auto reason : alarms_.activeReasons()) {
     st.alarm_reasons.emplace_back(toString(reason));

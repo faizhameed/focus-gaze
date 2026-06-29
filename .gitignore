@@ -34,3 +34,11 @@ install_manifest.txt
 .env
 .env.*
 *.local
+
+# Local blocklists (may contain personal / sensitive domains — do not commit)
+# Committed template only: resources/sample_blocklist.txt
+blocklist.txt
+**/blocklist.txt
+!resources/sample_blocklist.txt
+resources/default_blocklist.txt
+src/core/default_blocklist.inc

@@ -1,0 +1,48 @@
+# focusGaze sample blocklist (committed template — social / entertainment only)
+# Copy to your data dir for a larger starting list:
+#   cp resources/sample_blocklist.txt "$FOCUSGAZE_DATA_DIR/blocklist.txt"
+# Or: ~/Library/Application Support/focusGaze/blocklist.txt
+#
+# If blocklist.txt is missing, the app creates a SMALL social seed automatically.
+# Existing blocklist.txt is never overwritten.
+#
+# Keep personal / sensitive domains in your local blocklist.txt only (gitignored).
+# Format: one domain per line. Lines starting with # are comments.
+
+# --- Social ---
+instagram.com
+www.instagram.com
+tiktok.com
+www.tiktok.com
+x.com
+twitter.com
+www.twitter.com
+reddit.com
+www.reddit.com
+facebook.com
+www.facebook.com
+fb.com
+snapchat.com
+www.snapchat.com
+threads.net
+www.threads.net
+discord.com
+www.discord.com
+telegram.org
+web.telegram.org
+whatsapp.com
+web.whatsapp.com
+
+# --- Video / entertainment ---
+youtube.com
+www.youtube.com
+m.youtube.com
+youtu.be
+netflix.com
+www.netflix.com
+twitch.tv
+www.twitch.tv
+hulu.com
+www.hulu.com
+disneyplus.com
+www.disneyplus.com

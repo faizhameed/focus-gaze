@@ -9,12 +9,9 @@ namespace focusgaze {
 
 /// User-configurable application settings (JSON on disk).
 struct Settings {
-  /// Domains that trigger social / time-waste alarms while Focus is on.
-  std::vector<std::string> blocklist{
-      "instagram.com", "www.instagram.com", "tiktok.com", "www.tiktok.com",
-      "x.com",         "twitter.com",       "www.twitter.com",
-      "reddit.com",    "www.reddit.com",    "facebook.com", "www.facebook.com",
-      "netflix.com",   "www.netflix.com"};
+  /// Domains that trigger social / time-waste / adult alarms while Focus is on.
+  /// Loaded from data-dir blocklist.txt (see resources/sample_blocklist.txt template).
+  std::vector<std::string> blocklist{};
 
   /// Domains that are always treated as productive (wins over blocklist).
   std::vector<std::string> allowlist{};
