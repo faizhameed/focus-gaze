@@ -256,12 +256,16 @@ int main(int argc, char** argv) {
       auto last_cam = std::make_shared<std::atomic<bool>>(false);
       auto visibility = [camera = camera.get(), last_cam]() -> bool {
         if (envPhoneAlwaysVisible()) return true;
-        if (!camera || !camera->isOpen()) return last_cam->load();
+        if (!camera || !camera->isOpen()) {
+          last_cam->store(false);
+          return false;
+        }
         bool v = false;
         if (camera->pollPhoneVisible(v)) {
           last_cam->store(v);
           return v;
         }
+        // Throttled frame: keep last debounced decision (clears once camera reports miss streak).
         return last_cam->load();
       };
 

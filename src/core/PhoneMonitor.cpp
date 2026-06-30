@@ -8,7 +8,7 @@ PhoneMonitor::PhoneMonitor(Storage& storage, FocusSessionManager& focus, AlarmCo
       focus_(focus),
       alarms_(alarms),
       settings_(std::move(settings)),
-      tracker_(settings_.phone_threshold_seconds, settings_.phone_window_seconds, 3) {}
+      tracker_(settings_.phone_threshold_seconds, settings_.phone_window_seconds, 2) {}
 
 void PhoneMonitor::setSettings(const Settings& settings) {
   std::lock_guard lock(mutex_);
