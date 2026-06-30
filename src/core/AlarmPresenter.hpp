@@ -3,7 +3,6 @@
 #include "core/AlarmController.hpp"
 
 #include <atomic>
-#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -11,7 +10,8 @@
 
 namespace focusgaze {
 
-/// Always-on-top style overlay + sound loop while any alarm reason is active.
+/// Overlay + sound while any alarm reason is active.
+/// IMPORTANT (macOS): call tick() only from the main thread — OpenCV highgui uses NSWindow.
 class AlarmPresenter {
 public:
   AlarmPresenter();
@@ -23,15 +23,17 @@ public:
   void start();
   void stop();
 
-  /// Update active reasons (empty = clear overlay/sound).
+  /// Update active reasons (thread-safe).
   void setActiveReasons(std::vector<AlarmReason> reasons);
 
+  /// Apply overlay changes. Must run on the main thread on macOS.
+  void tick();
+
 private:
-  void uiLoop();
-  void soundLoop();
   std::string messageFor(const std::vector<AlarmReason>& reasons) const;
   void showOverlay(const std::string& message);
   void hideOverlay();
+  void soundLoop();
   void playBeep();
 
   std::atomic<bool> running_{false};
@@ -39,7 +41,7 @@ private:
   std::mutex mu_;
   std::vector<AlarmReason> reasons_;
   bool overlay_visible_{false};
-  std::thread ui_thread_;
+  std::string last_message_;
   std::thread sound_thread_;
 };
 

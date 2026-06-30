@@ -295,10 +295,20 @@ int main(int argc, char** argv) {
                 << "Ctrl+C to stop\n"
                 << std::flush;
 
-      // Poll alarms for overlay/sound
+      // Poll alarms on the MAIN thread only (OpenCV/AppKit NSWindow requirement).
+      bool last_phone_log = false;
       while (!g_stop.load()) {
-        alarms_ui.setActiveReasons(app.browser.alarms().activeReasons());
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        const auto reasons = app.browser.alarms().activeReasons();
+        alarms_ui.setActiveReasons(reasons);
+        alarms_ui.tick();  // must be main thread
+        const auto ph = app.phone.status(wallNow());
+        if (ph.phone_visible != last_phone_log) {
+          std::cout << "[focusGaze] phone_visible=" << (ph.phone_visible ? "yes" : "no")
+                    << " cumulative_s=" << ph.cumulative_visible_seconds
+                    << " phone_alarm=" << (ph.phone_alarm ? "on" : "off") << std::endl;
+          last_phone_log = ph.phone_visible;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
       }
       vision.stop();
       alarms_ui.stop();

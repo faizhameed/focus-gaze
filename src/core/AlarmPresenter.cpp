@@ -22,15 +22,12 @@ void AlarmPresenter::start() {
   }
   stop_ = false;
   running_ = true;
-  ui_thread_ = std::thread([this] { uiLoop(); });
+  // Sound only — never create NSWindow off the main thread.
   sound_thread_ = std::thread([this] { soundLoop(); });
 }
 
 void AlarmPresenter::stop() {
   stop_ = true;
-  if (ui_thread_.joinable()) {
-    ui_thread_.join();
-  }
   if (sound_thread_.joinable()) {
     sound_thread_.join();
   }
@@ -41,6 +38,25 @@ void AlarmPresenter::stop() {
 void AlarmPresenter::setActiveReasons(std::vector<AlarmReason> reasons) {
   std::lock_guard lock(mu_);
   reasons_ = std::move(reasons);
+}
+
+void AlarmPresenter::tick() {
+  std::vector<AlarmReason> reasons;
+  {
+    std::lock_guard lock(mu_);
+    reasons = reasons_;
+  }
+  if (reasons.empty()) {
+    if (overlay_visible_) {
+      hideOverlay();
+    }
+    return;
+  }
+  showOverlay(messageFor(reasons));
+#if defined(FOCUSGAZE_HAS_OPENCV)
+  // Pump Cocoa/OpenCV event loop on the main thread.
+  cv::waitKey(1);
+#endif
 }
 
 std::string AlarmPresenter::messageFor(const std::vector<AlarmReason>& reasons) const {
@@ -65,15 +81,21 @@ std::string AlarmPresenter::messageFor(const std::vector<AlarmReason>& reasons) 
   if (phone) {
     oss << "Put the phone down to continue.\n";
   }
-  oss << "\n(Overlay stays up under Do Not Disturb; sound may be muted.)";
+  oss << "\n(Overlay is main-thread UI; works under Do Not Disturb.)";
   return oss.str();
 }
 
 void AlarmPresenter::showOverlay(const std::string& message) {
 #if defined(FOCUSGAZE_HAS_OPENCV)
+  if (overlay_visible_ && message == last_message_) {
+    // Still refresh so window stays responsive.
+    cv::waitKey(1);
+    return;
+  }
+  last_message_ = message;
   const int W = 900;
   const int H = 500;
-  cv::Mat canvas(H, W, CV_8UC3, cv::Scalar(40, 40, 200)); // BGR red-ish
+  cv::Mat canvas(H, W, CV_8UC3, cv::Scalar(40, 40, 200));
   std::stringstream ss(message);
   std::string line;
   int y = 80;
@@ -89,11 +111,11 @@ void AlarmPresenter::showOverlay(const std::string& message) {
   } catch (...) {
   }
   cv::imshow("focusGaze ALARM", canvas);
-  cv::waitKey(1);
   overlay_visible_ = true;
 #else
-  if (!overlay_visible_) {
-    std::cout << "\n========== " << message << " ==========\n" << std::flush;
+  if (!overlay_visible_ || message != last_message_) {
+    last_message_ = message;
+    std::cout << "\n==========\n" << message << "\n==========\n" << std::flush;
     overlay_visible_ = true;
   }
 #endif
@@ -110,36 +132,18 @@ void AlarmPresenter::hideOverlay() {
   }
 #endif
   overlay_visible_ = false;
+  last_message_.clear();
 }
 
 void AlarmPresenter::playBeep() {
 #if defined(__APPLE__)
-  // System sound — still attempt even if Mac volume is low; overlay is primary under mute.
   std::system("afplay /System/Library/Sounds/Sosumi.aiff >/dev/null 2>&1 &");
 #elif defined(_WIN32)
-  // Best-effort; overlay remains primary.
   std::system("powershell -c (New-Object Media.SoundPlayer "
               "'C:\\Windows\\Media\\Windows Exclamation.wav').PlaySync(); >/dev/null 2>&1");
 #else
   std::cout << '\a' << std::flush;
 #endif
-}
-
-void AlarmPresenter::uiLoop() {
-  while (!stop_.load()) {
-    std::vector<AlarmReason> reasons;
-    {
-      std::lock_guard lock(mu_);
-      reasons = reasons_;
-    }
-    if (reasons.empty()) {
-      hideOverlay();
-    } else {
-      showOverlay(messageFor(reasons));
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  }
-  hideOverlay();
 }
 
 void AlarmPresenter::soundLoop() {
@@ -151,7 +155,6 @@ void AlarmPresenter::soundLoop() {
     }
     if (active) {
       playBeep();
-      // Loop cadence ~1.2s
       for (int i = 0; i < 12 && !stop_.load(); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
