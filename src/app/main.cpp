@@ -245,32 +245,18 @@ int main(int argc, char** argv) {
       std::signal(SIGTERM, onSignal);
       app.focus.syncFromStorage();
 
-      // Camera / fake video / env override
       std::unique_ptr<focusgaze::CameraSource> camera;
       const std::string fake = focusgaze::CameraSource::resolveVideoPathFromEnv();
       bool camera_ok = false;
 #if defined(FOCUSGAZE_HAS_OPENCV)
+      // OpenCV capture + GUI must stay on THIS (main) thread on macOS.
       camera = std::make_unique<focusgaze::CameraSource>(fake, 15);
       camera_ok = camera->isOpen();
 #endif
-      // Sticky last camera decision between throttled frames
-      auto last_cam = std::make_shared<std::atomic<bool>>(false);
-      auto visibility = [camera = camera.get(), last_cam]() -> bool {
-        if (envPhoneAlwaysVisible()) return true;
-        if (!camera || !camera->isOpen()) {
-          last_cam->store(false);
-          return false;
-        }
-        bool v = false;
-        if (camera->pollPhoneVisible(v)) {
-          last_cam->store(v);
-          return v;
-        }
-        // Throttled frame: keep last debounced decision (clears once camera reports miss streak).
-        return last_cam->load();
-      };
 
-      focusgaze::VisionLoop vision(app.phone, visibility, wallNow, 66);
+      // VisionLoop only applies HTTP inject overrides (no OpenCV on worker thread).
+      auto visibility = []() -> bool { return envPhoneAlwaysVisible(); };
+      focusgaze::VisionLoop vision(app.phone, visibility, wallNow, 200);
       focusgaze::AlarmPresenter alarms_ui;
       alarms_ui.start();
       focusgaze::CameraPreview camera_preview;
@@ -289,33 +275,47 @@ int main(int argc, char** argv) {
                 << "token=" << app.settings.bridge_token << "\n"
                 << "focus=" << (focus_on ? "on" : "off") << "\n"
                 << "camera=" << (camera_ok ? (fake.empty() ? "webcam" : "fake_video") : "off")
-                << "\nyolo=" << (camera && camera->yoloReady() ? "on" : "off")
-                << "\n"
-                << "camera_preview=on (red box = trigger region)\n"
-                << "alarm_overlay="
-#if defined(FOCUSGAZE_HAS_OPENCV)
-                << "opencv_window"
-#else
-                << "console"
-#endif
-                << "\n"
+                << "\nyolo=" << (camera && camera->yoloReady() ? "on" : "off") << "\n"
+                << "opencv_ui=main_thread_only (single window)\n"
                 << "POST /v1/url  POST /v1/phone  GET /v1/status\n"
                 << "Ctrl+C to stop\n"
                 << std::flush;
 
-      // Poll alarms on the MAIN thread only (OpenCV/AppKit NSWindow requirement).
       bool last_phone_log = false;
       while (!g_stop.load()) {
-        const auto reasons = app.browser.alarms().activeReasons();
-        alarms_ui.setActiveReasons(reasons);
-        alarms_ui.tick();  // must be main thread
-        {
-          const int key = camera_preview.tick(camera.get());
-          if (key == 'd' || key == 'D') {
-            app.phone.forceClearAlarm();
-            std::cout << "[focusGaze] phone alarm dismissed (press D)" << std::endl;
+#if defined(FOCUSGAZE_HAS_OPENCV)
+        // Capture + YOLO on main thread (prevents AVFoundation + highgui segfaults).
+        if (camera && camera->isOpen()) {
+          bool vis = false;
+          if (camera->pollPhoneVisible(vis)) {
+            if (!envPhoneAlwaysVisible()) {
+              app.phone.sample(wallNow(), vis);
+            }
           }
         }
+#endif
+        if (envPhoneAlwaysVisible()) {
+          app.phone.sample(wallNow(), true);
+        }
+
+        const auto reasons = app.browser.alarms().activeReasons();
+        alarms_ui.setActiveReasons(reasons);
+        alarms_ui.tick();
+
+        std::string banner;
+        if (!reasons.empty()) {
+          banner = "ALARM: ";
+          for (std::size_t i = 0; i < reasons.size(); ++i) {
+            if (i) banner += " + ";
+            banner += focusgaze::toString(reasons[i]);
+          }
+        }
+        const int key = camera_preview.tick(camera.get(), banner);
+        if (key == 'd' || key == 'D') {
+          app.phone.forceClearAlarm();
+          std::cout << "[focusGaze] phone alarm dismissed (press D)" << std::endl;
+        }
+
         const auto ph = app.phone.status(wallNow());
         if (ph.phone_visible != last_phone_log) {
           std::cout << "[focusGaze] phone_visible=" << (ph.phone_visible ? "yes" : "no")
