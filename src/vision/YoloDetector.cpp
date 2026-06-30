@@ -96,6 +96,7 @@ std::filesystem::path resolveYoloModelPath() {
   const std::filesystem::path candidates[] = {
       std::filesystem::current_path() / "models" / "yolo11n.onnx",
       std::filesystem::current_path() / ".." / "models" / "yolo11n.onnx",
+      std::filesystem::current_path() / ".." / "Resources" / "models" / "yolo11n.onnx",
       std::filesystem::path{"models/yolo11n.onnx"},
   };
   for (const auto& c : candidates) {

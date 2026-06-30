@@ -121,3 +121,48 @@ if(FOCUSGAZE_BUILD_TESTS)
   include(Catch)
   catch_discover_tests(focusgaze_tests)
 endif()
+
+# --- Phase 5: Qt tray GUI (MACOSX_BUNDLE) ---
+option(FOCUSGAZE_BUILD_GUI "Build Qt system-tray GUI app" ON)
+if(FOCUSGAZE_BUILD_GUI)
+  set(CMAKE_PREFIX_PATH "/opt/homebrew/opt/qtbase;${CMAKE_PREFIX_PATH}")
+  find_package(Qt6 QUIET COMPONENTS Widgets)
+  if(Qt6_FOUND)
+    message(STATUS "Qt6 found — building focusGaze tray app")
+    set(CMAKE_AUTOMOC ON)
+    add_executable(focusGaze_gui
+      src/ui/main_gui.cpp
+      src/ui/TrayController.cpp
+      src/ui/TrayController.hpp
+      src/ui/CameraWindow.cpp
+      src/ui/CameraWindow.hpp
+    )
+    target_link_libraries(focusGaze_gui PRIVATE focusgaze_core Qt6::Widgets)
+    target_compile_definitions(focusGaze_gui PRIVATE FOCUSGAZE_GUI=1)
+    if(APPLE AND FOCUSGAZE_HAS_YOLO)
+      set_target_properties(focusGaze_gui PROPERTIES BUILD_RPATH "/opt/homebrew/opt/onnxruntime/lib")
+    endif()
+    if(APPLE)
+      set_target_properties(focusGaze_gui PROPERTIES
+        MACOSX_BUNDLE TRUE
+        OUTPUT_NAME "focusGaze"
+        MACOSX_BUNDLE_BUNDLE_NAME "focusGaze"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.focusgaze.app"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/resources/Info.plist.in"
+      )
+    endif()
+    # Convenience: copy YOLO model next to bundle for first run (dev)
+    add_custom_command(TARGET focusGaze_gui POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:focusGaze_gui>/../Resources/models"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/models/yolo11n.onnx"
+        "$<TARGET_FILE_DIR:focusGaze_gui>/../Resources/models/yolo11n.onnx"
+      COMMENT "Copy yolo11n.onnx into app Resources (if present)"
+      VERBATIM
+    )
+  else()
+    message(STATUS "Qt6 Widgets not found — skipping GUI (CLI focusgaze still built)")
+  endif()
+endif()
