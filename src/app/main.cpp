@@ -7,6 +7,7 @@
 #include "core/ProductivityStats.hpp"
 #include "core/Settings.hpp"
 #include "core/Storage.hpp"
+#include "vision/CameraPreview.hpp"
 #include "vision/CameraSource.hpp"
 #include "vision/VisionLoop.hpp"
 
@@ -272,6 +273,7 @@ int main(int argc, char** argv) {
       focusgaze::VisionLoop vision(app.phone, visibility, wallNow, 400);
       focusgaze::AlarmPresenter alarms_ui;
       alarms_ui.start();
+      focusgaze::CameraPreview camera_preview;
 
       focusgaze::HttpBrowserBridge bridge(app.browser, app.settings.bridge_token,
                                           app.settings.bridge_port, &app.phone, &vision);
@@ -288,6 +290,7 @@ int main(int argc, char** argv) {
                 << "focus=" << (focus_on ? "on" : "off") << "\n"
                 << "camera=" << (camera_ok ? (fake.empty() ? "webcam" : "fake_video") : "off")
                 << "\n"
+                << "camera_preview=on (red box = trigger region)\n"
                 << "alarm_overlay="
 #if defined(FOCUSGAZE_HAS_OPENCV)
                 << "opencv_window"
@@ -305,6 +308,7 @@ int main(int argc, char** argv) {
         const auto reasons = app.browser.alarms().activeReasons();
         alarms_ui.setActiveReasons(reasons);
         alarms_ui.tick();  // must be main thread
+        camera_preview.tick(camera.get());  // live view + red trigger boxes
         const auto ph = app.phone.status(wallNow());
         if (ph.phone_visible != last_phone_log) {
           std::cout << "[focusGaze] phone_visible=" << (ph.phone_visible ? "yes" : "no")
@@ -315,6 +319,7 @@ int main(int argc, char** argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
       }
       vision.stop();
+      camera_preview.close();
       alarms_ui.stop();
       bridge.stop();
       std::cout << "stopped\n";

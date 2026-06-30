@@ -101,16 +101,19 @@ struct CameraSource::Impl {
   std::chrono::steady_clock::time_point last_grab{};
   bool have_last{false};
 
-  cv::Mat prev_gray; // motion reference
+  cv::Mat prev_gray;
   bool have_prev{false};
 
-  // Debounce: require sustained evidence (avoids desk phone / flicker).
-  // ON needs more consecutive hits than OFF so we clear promptly when phone leaves.
   int consecutive_hit_{0};
   int consecutive_miss_{0};
   bool reported_visible_{false};
-  static constexpr int kHitsToActivate = 4;   // ~1.3s at 3fps
-  static constexpr int kMissesToClear = 3;    // ~1s at 3fps to drop visible
+  static constexpr int kHitsToActivate = 4;
+  static constexpr int kMissesToClear = 3;
+
+  mutable std::mutex debug_mu_;
+  cv::Mat debug_bgr_;
+  std::vector<cv::Rect> debug_hits_;
+  bool debug_raw_hit_{false};
 
   bool throttle() {
     const auto now = std::chrono::steady_clock::now();
@@ -125,15 +128,39 @@ struct CameraSource::Impl {
     return true;
   }
 
-  /// True only if a phone-like rectangle overlaps meaningful *motion*.
-  /// Static phone on desk → contours maybe, but little motion → false.
-  bool detectActivePhoneUse(const cv::Mat& bgr) {
+  void publishDebug(const cv::Mat& full_bgr, const std::vector<cv::Rect>& hits_on_small,
+                    double scale, bool raw_hit) {
+    // Map small-frame rects back to full resolution for drawing.
+    std::vector<cv::Rect> full_hits;
+    full_hits.reserve(hits_on_small.size());
+    const double inv = (scale > 1e-6) ? (1.0 / scale) : 1.0;
+    for (const auto& r : hits_on_small) {
+      cv::Rect fr(static_cast<int>(r.x * inv), static_cast<int>(r.y * inv),
+                  static_cast<int>(r.width * inv), static_cast<int>(r.height * inv));
+      if (!full_bgr.empty()) {
+        fr &= cv::Rect(0, 0, full_bgr.cols, full_bgr.rows);
+      }
+      if (fr.area() > 0) {
+        full_hits.push_back(fr);
+      }
+    }
+    std::lock_guard lock(debug_mu_);
+    debug_bgr_ = full_bgr.clone();
+    debug_hits_ = std::move(full_hits);
+    debug_raw_hit_ = raw_hit;
+  }
+
+  /// Returns raw hit; fills hit_rects on the *small* working image.
+  bool detectActivePhoneUse(const cv::Mat& bgr, std::vector<cv::Rect>& hit_rects_small,
+                            double& used_scale) {
+    hit_rects_small.clear();
+    used_scale = 1.0;
     if (bgr.empty()) {
       return false;
     }
     cv::Mat small;
-    const double scale = 320.0 / std::max(bgr.cols, 1);
-    cv::resize(bgr, small, cv::Size(), scale, scale, cv::INTER_AREA);
+    used_scale = 320.0 / std::max(bgr.cols, 1);
+    cv::resize(bgr, small, cv::Size(), used_scale, used_scale, cv::INTER_AREA);
 
     cv::Mat gray;
     cv::cvtColor(small, gray, cv::COLOR_BGR2GRAY);
@@ -150,7 +177,6 @@ struct CameraSource::Impl {
     prev_gray = gray.clone();
     have_prev = true;
 
-    // Almost no global motion → user not handling phone (desk / idle scene).
     if (motion_frac < 0.004) {
       return false;
     }
@@ -161,6 +187,7 @@ struct CameraSource::Impl {
     cv::findContours(edges, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
 
     const double frame_area = static_cast<double>(small.rows * small.cols);
+    bool any = false;
     for (const auto& c : contours) {
       if (c.size() < 5) {
         continue;
@@ -176,20 +203,16 @@ struct CameraSource::Impl {
       }
       const double aspect = h / w;
       const double area = w * h;
-      // Tighter phone-ish portrait band
       if (aspect < 1.5 || aspect > 2.6) {
         continue;
       }
-      // Must be a noticeable object (not tiny noise), not huge (whole torso)
       if (area < frame_area * 0.03 || area > frame_area * 0.35) {
         continue;
       }
-      // Ignore very top of frame (monitors / shelves)
       if (rr.center.y < small.rows * 0.2) {
         continue;
       }
 
-      // Require motion *inside* the candidate box (hand moving phone), not just elsewhere.
       if (!motion.empty()) {
         cv::Rect box = rr.boundingRect();
         box &= cv::Rect(0, 0, motion.cols, motion.rows);
@@ -199,14 +222,14 @@ struct CameraSource::Impl {
         const cv::Mat roi = motion(box);
         const double roi_motion =
             static_cast<double>(cv::countNonZero(roi)) / static_cast<double>(box.area());
-        // Desk phone: near-zero motion in ROI. Hand use: higher.
         if (roi_motion < 0.04) {
           continue;
         }
-        return true;
+        hit_rects_small.push_back(box);
+        any = true;
       }
     }
-    return false;
+    return any;
   }
 
   bool updateDebounced(bool raw_hit) {
@@ -217,7 +240,6 @@ struct CameraSource::Impl {
       ++consecutive_miss_;
       consecutive_hit_ = 0;
     }
-
     if (!reported_visible_ && consecutive_hit_ >= kHitsToActivate) {
       reported_visible_ = true;
       logCam("active phone use detected (motion+shape, debounced)");
@@ -251,6 +273,25 @@ CameraSource::~CameraSource() {
 
 bool CameraSource::isOpen() const { return impl_ && impl_->cap.isOpened(); }
 
+bool CameraSource::reportedVisible() const {
+  return impl_ && impl_->reported_visible_;
+}
+
+CameraSource::DebugSnapshot CameraSource::copyDebugSnapshot() const {
+  DebugSnapshot s;
+  if (!impl_) {
+    return s;
+  }
+  std::lock_guard lock(impl_->debug_mu_);
+  if (!impl_->debug_bgr_.empty()) {
+    s.bgr = impl_->debug_bgr_.clone();
+  }
+  s.hit_rects = impl_->debug_hits_;
+  s.raw_hit = impl_->debug_raw_hit_;
+  s.debounced_visible = impl_->reported_visible_;
+  return s;
+}
+
 bool CameraSource::pollPhoneVisible(bool& out_visible) {
   out_visible = impl_ ? impl_->reported_visible_ : false;
   if (!isOpen()) {
@@ -264,16 +305,20 @@ bool CameraSource::pollPhoneVisible(bool& out_visible) {
     if (!CameraSource::resolveVideoPathFromEnv().empty()) {
       impl_->cap.set(cv::CAP_PROP_POS_FRAMES, 0);
       if (!impl_->cap.read(frame) || frame.empty()) {
-        // Treat failed read as miss so alarm can clear.
         out_visible = impl_->updateDebounced(false);
+        impl_->publishDebug(cv::Mat(), {}, 1.0, false);
         return true;
       }
     } else {
       out_visible = impl_->updateDebounced(false);
+      impl_->publishDebug(cv::Mat(), {}, 1.0, false);
       return true;
     }
   }
-  const bool raw = impl_->detectActivePhoneUse(frame);
+  std::vector<cv::Rect> hits_small;
+  double scale = 1.0;
+  const bool raw = impl_->detectActivePhoneUse(frame, hits_small, scale);
+  impl_->publishDebug(frame, hits_small, scale, raw);
   out_visible = impl_->updateDebounced(raw);
   return true;
 }
@@ -285,6 +330,7 @@ struct CameraSource::Impl {};
 CameraSource::CameraSource(std::string, int) : impl_(std::make_unique<Impl>()) {}
 CameraSource::~CameraSource() = default;
 bool CameraSource::isOpen() const { return false; }
+bool CameraSource::reportedVisible() const { return false; }
 bool CameraSource::pollPhoneVisible(bool& out_visible) {
   out_visible = false;
   return false;

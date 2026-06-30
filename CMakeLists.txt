@@ -54,6 +54,7 @@ set(FOCUSGAZE_CORE_SOURCES
   src/core/ProductivityStats.cpp
   src/vision/VisionLoop.cpp
   src/vision/CameraSource.cpp
+  src/vision/CameraPreview.cpp
   src/bridge/HttpBrowserBridge.cpp
 )
 
