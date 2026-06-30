@@ -289,6 +289,7 @@ int main(int argc, char** argv) {
                 << "token=" << app.settings.bridge_token << "\n"
                 << "focus=" << (focus_on ? "on" : "off") << "\n"
                 << "camera=" << (camera_ok ? (fake.empty() ? "webcam" : "fake_video") : "off")
+                << "\nyolo=" << (camera && camera->yoloReady() ? "on" : "off")
                 << "\n"
                 << "camera_preview=on (red box = trigger region)\n"
                 << "alarm_overlay="
@@ -308,7 +309,13 @@ int main(int argc, char** argv) {
         const auto reasons = app.browser.alarms().activeReasons();
         alarms_ui.setActiveReasons(reasons);
         alarms_ui.tick();  // must be main thread
-        camera_preview.tick(camera.get());  // live view + red trigger boxes
+        {
+          const int key = camera_preview.tick(camera.get());
+          if (key == 'd' || key == 'D') {
+            app.phone.forceClearAlarm();
+            std::cout << "[focusGaze] phone alarm dismissed (press D)" << std::endl;
+          }
+        }
         const auto ph = app.phone.status(wallNow());
         if (ph.phone_visible != last_phone_log) {
           std::cout << "[focusGaze] phone_visible=" << (ph.phone_visible ? "yes" : "no")

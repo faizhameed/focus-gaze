@@ -29,6 +29,14 @@ void PhoneMonitor::onFocusTurnedOff() {
   interval_start_.reset();
 }
 
+void PhoneMonitor::forceClearAlarm() {
+  std::lock_guard lock(mutex_);
+  tracker_.reset();
+  alarms_.setPhoneAlarm(false);
+  last_visible_ = false;
+  interval_start_.reset();
+}
+
 void PhoneMonitor::reset() {
   std::lock_guard lock(mutex_);
   tracker_.reset();
@@ -65,7 +73,15 @@ void PhoneMonitor::sample(EpochSeconds now, bool phone_visible) {
 
   tracker_.sample(now, phone_visible);
   last_visible_ = phone_visible;
-  alarms_.setPhoneAlarm(tracker_.shouldAlarmBeActive(now));
+
+  // Vision already applied sustained OFF hysteresis (~1.5s). When it reports not in-use,
+  // clear the phone alarm immediately so overlay matches logs (phone_visible=no).
+  if (!phone_visible) {
+    tracker_.clearAlarmLatch();
+    alarms_.setPhoneAlarm(false);
+  } else {
+    alarms_.setPhoneAlarm(tracker_.shouldAlarmBeActive(now));
+  }
 }
 
 PhoneStatus PhoneMonitor::status(EpochSeconds now) const {
@@ -76,7 +92,8 @@ PhoneStatus PhoneMonitor::status(EpochSeconds now) const {
   st.cumulative_visible_seconds = tracker_.cumulativeVisibleSeconds(now);
   st.threshold_seconds = tracker_.thresholdSeconds();
   st.window_seconds = tracker_.windowSeconds();
-  st.phone_alarm = tracker_.shouldAlarmBeActive(now);
+  // Alarm only while in-use; if tracker not currently visible, alarm is off.
+  st.phone_alarm = tracker_.currentlyVisible() && tracker_.shouldAlarmBeActive(now);
   return st;
 }
 

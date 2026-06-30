@@ -1,7 +1,5 @@
 #include "vision/CameraPreview.hpp"
 
-#include <string>
-
 #if defined(FOCUSGAZE_HAS_OPENCV)
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -9,59 +7,51 @@
 
 namespace focusgaze {
 
-void CameraPreview::tick(const CameraSource* camera) {
+int CameraPreview::tick(const CameraSource* camera) {
 #if defined(FOCUSGAZE_HAS_OPENCV)
   if (!camera || !camera->isOpen()) {
     close();
-    return;
+    return 0;
   }
   auto snap = camera->copyDebugSnapshot();
-  if (snap.bgr.empty()) {
-    return;
-  }
+  if (snap.bgr.empty()) return cv::waitKey(1) & 0xFF;
 
   cv::Mat canvas = snap.bgr.clone();
-  // Red rectangles (BGR: 0,0,255) on regions that triggered this frame's raw hit.
-  for (const auto& r : snap.hit_rects) {
-    cv::rectangle(canvas, r, cv::Scalar(0, 0, 255), 2);
+  for (const auto& b : snap.boxes) {
+    const cv::Scalar color = b.in_use_candidate ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 165, 255);
+    cv::rectangle(canvas, b.rect, color, 2);
+    const std::string label =
+        (b.in_use_candidate ? "in-use " : "present ") + std::to_string(b.conf).substr(0, 4);
+    cv::putText(canvas, label, cv::Point(b.rect.x, std::max(12, b.rect.y - 4)),
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv::LINE_AA);
   }
 
-  // Status banner
-  std::string status = snap.debounced_visible ? "ACTIVE USE (counts toward alarm)" : "idle / ignored";
-  if (snap.raw_hit && !snap.debounced_visible) {
-    status = "candidate (debouncing...)";
-  }
-  if (!snap.raw_hit && snap.debounced_visible) {
-    status = "clearing...";
-  }
-  cv::rectangle(canvas, cv::Rect(0, 0, canvas.cols, 36), cv::Scalar(30, 30, 30), cv::FILLED);
-  cv::putText(canvas, "focusGaze camera — red box = motion+shape trigger", cv::Point(8, 24),
-              cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(220, 220, 220), 1, cv::LINE_AA);
+  std::string status = snap.debounced_visible ? "IN-USE (counts toward alarm)" : "idle";
+  if (snap.raw_in_use && !snap.debounced_visible) status = "candidate (debouncing on...)";
+  if (!snap.raw_in_use && snap.debounced_visible) status = "clearing (phone down / still)...";
+  if (!snap.yolo_loaded) status = "YOLO not loaded";
 
-  const cv::Scalar badge =
-      snap.debounced_visible ? cv::Scalar(0, 0, 220) : cv::Scalar(60, 160, 60);
-  cv::putText(canvas, status, cv::Point(8, canvas.rows - 12), cv::FONT_HERSHEY_SIMPLEX, 0.6,
-              badge, 2, cv::LINE_AA);
+  cv::rectangle(canvas, cv::Rect(0, 0, canvas.cols, 40), cv::Scalar(30, 30, 30), cv::FILLED);
+  cv::putText(canvas, "red=in-use  orange=desk/present (no alarm)  |  D=dismiss phone alarm",
+              cv::Point(8, 16), cv::FONT_HERSHEY_SIMPLEX, 0.42, cv::Scalar(220, 220, 220), 1,
+              cv::LINE_AA);
+  cv::putText(canvas, status, cv::Point(8, 34), cv::FONT_HERSHEY_SIMPLEX, 0.5,
+              snap.debounced_visible ? cv::Scalar(0, 0, 220) : cv::Scalar(80, 200, 80), 1,
+              cv::LINE_AA);
 
   cv::namedWindow("focusGaze camera", cv::WINDOW_NORMAL);
-  // Keep preview manageable
-  const int max_w = 960;
-  if (canvas.cols > max_w) {
+  if (canvas.cols > 960) {
     cv::Mat scaled;
-    const double s = static_cast<double>(max_w) / canvas.cols;
-    cv::resize(canvas, scaled, cv::Size(), s, s);
+    cv::resize(canvas, scaled, cv::Size(), 960.0 / canvas.cols, 960.0 / canvas.cols);
     cv::imshow("focusGaze camera", scaled);
   } else {
     cv::imshow("focusGaze camera", canvas);
   }
-  try {
-    cv::setWindowProperty("focusGaze camera", cv::WND_PROP_TOPMOST, 0);
-  } catch (...) {
-  }
-  cv::waitKey(1);
   window_open_ = true;
+  return cv::waitKey(1) & 0xFF;
 #else
   (void)camera;
+  return 0;
 #endif
 }
 

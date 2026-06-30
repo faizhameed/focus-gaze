@@ -33,6 +33,9 @@ public:
 
   void reset();
 
+  /// Clear alarm latch only (vision already decided not in-use). Keeps interval history for stats.
+  void clearAlarmLatch();
+
   bool currentlyVisible() const { return currently_visible_; }
 
 private:

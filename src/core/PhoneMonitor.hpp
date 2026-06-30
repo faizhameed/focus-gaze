@@ -34,6 +34,9 @@ public:
   void onFocusTurnedOff();
   void reset();
 
+  /// User dismiss / escape hatch — clears phone latch and alarm reason.
+  void forceClearAlarm();
+
   PhonePresenceTracker& tracker() { return tracker_; }
 
 private:

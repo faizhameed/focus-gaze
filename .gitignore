@@ -42,3 +42,8 @@ blocklist.txt
 !resources/sample_blocklist.txt
 resources/default_blocklist.txt
 src/core/default_blocklist.inc
+
+# Python / YOLO export
+.venv/
+yolo11n.pt
+__pycache__/

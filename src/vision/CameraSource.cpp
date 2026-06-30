@@ -4,7 +4,6 @@
 #include <cstdlib>
 #include <iostream>
 #include <thread>
-#include <vector>
 
 #if defined(FOCUSGAZE_HAS_OPENCV)
 #include <opencv2/imgproc.hpp>
@@ -20,54 +19,46 @@ int clampFps(int fps) {
   return fps;
 }
 
-#if defined(FOCUSGAZE_HAS_OPENCV)
 void logCam(const std::string& msg) {
-  if (const char* q = std::getenv("FOCUSGAZE_QUIET"); q && q[0] && q[0] != '0') {
-    return;
-  }
+  if (const char* q = std::getenv("FOCUSGAZE_QUIET"); q && q[0] && q[0] != '0') return;
   std::cerr << "[focusGaze/camera] " << msg << std::endl;
 }
 
+#if defined(FOCUSGAZE_HAS_OPENCV)
 bool tryOpenCapture(cv::VideoCapture& cap, const std::string& video_path) {
   if (!video_path.empty()) {
 #if defined(__APPLE__)
-    if (cap.open(video_path, cv::CAP_AVFOUNDATION) && cap.isOpened()) {
-      logCam("opened video via CAP_AVFOUNDATION: " + video_path);
-      return true;
-    }
+    if (cap.open(video_path, cv::CAP_AVFOUNDATION) && cap.isOpened()) return true;
     cap.release();
 #endif
-    if (cap.open(video_path) && cap.isOpened()) {
-      logCam("opened video via default backend: " + video_path);
-      return true;
-    }
-    return false;
+    return cap.open(video_path) && cap.isOpened();
   }
-  struct Attempt { int index; int api; const char* name; };
-  std::vector<Attempt> attempts;
 #if defined(__APPLE__)
-  for (int idx = 0; idx <= 2; ++idx)
-    attempts.push_back({idx, cv::CAP_AVFOUNDATION, "CAP_AVFOUNDATION"});
-#endif
-  for (int idx = 0; idx <= 2; ++idx)
-    attempts.push_back({idx, cv::CAP_ANY, "CAP_ANY"});
-  for (const auto& a : attempts) {
+  for (int idx = 0; idx <= 2; ++idx) {
     cap.release();
-    const bool ok = (a.api == 0) ? cap.open(a.index) : cap.open(a.index, a.api);
-    if (!ok || !cap.isOpened()) continue;
-    cv::Mat probe;
-    cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
-    for (int t = 0; t < 10; ++t) {
-      if (cap.read(probe) && !probe.empty()) {
-        logCam(std::string("opened camera index=") + std::to_string(a.index) +
-               " backend=" + a.name);
+    if (cap.open(idx, cv::CAP_AVFOUNDATION) && cap.isOpened()) {
+      cv::Mat p;
+      for (int t = 0; t < 8; ++t) {
+        if (cap.read(p) && !p.empty()) {
+          logCam("opened camera index=" + std::to_string(idx) + " CAP_AVFOUNDATION");
+          return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      }
+    }
+  }
+#endif
+  for (int idx = 0; idx <= 2; ++idx) {
+    cap.release();
+    if (cap.open(idx) && cap.isOpened()) {
+      cv::Mat p;
+      if (cap.read(p) && !p.empty()) {
+        logCam("opened camera index=" + std::to_string(idx));
         return true;
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
-    cap.release();
   }
-  logCam("all camera open attempts failed");
+  logCam("camera open failed");
   return false;
 }
 #endif
@@ -78,8 +69,8 @@ bool tryOpenCapture(cv::VideoCapture& cap, const std::string& video_path) {
 
 struct CameraSource::Impl {
   cv::VideoCapture cap;
-  int target_fps{15}; // capture/preview rate (smooth)
-  int detect_every_n_{3}; // run heavy detect every N captures (~5 Hz at 15fps)
+  int target_fps{15};
+  int detect_every_n_{3};
   int frame_i_{0};
   std::chrono::steady_clock::time_point last_grab{};
   bool have_last{false};
@@ -87,143 +78,89 @@ struct CameraSource::Impl {
   cv::Mat prev_gray;
   bool have_prev{false};
 
-  // Time-based hysteresis (more stable than frame counts under load)
+  YoloDetector yolo;
+  bool yolo_ok{false};
+
   bool reported_visible_{false};
   std::chrono::steady_clock::time_point candidate_since_{};
   std::chrono::steady_clock::time_point clear_since_{};
   bool in_candidate_{false};
   bool in_clearing_{false};
-  static constexpr double kOnHoldSec = 0.7;   // sustained activity to turn ON
-  static constexpr double kOffHoldSec = 1.2;  // sustained idle to turn OFF
+  static constexpr double kOnHoldSec = 0.5;
+  static constexpr double kOffHoldSec = 1.0; // sustained not-in-use → vision OFF → alarm clears
 
   mutable std::mutex debug_mu_;
   cv::Mat debug_bgr_;
-  std::vector<cv::Rect> debug_hits_;
-  bool debug_raw_hit_{false};
+  std::vector<CameraSource::DebugBox> debug_boxes_;
+  bool debug_raw_{false};
 
   bool throttleCapture() {
     const auto now = std::chrono::steady_clock::now();
     if (have_last) {
-      const auto min_gap = std::chrono::milliseconds(1000 / std::max(1, target_fps));
-      if (now - last_grab < min_gap) return false;
+      const auto gap = std::chrono::milliseconds(1000 / std::max(1, target_fps));
+      if (now - last_grab < gap) return false;
     }
     last_grab = now;
     have_last = true;
     return true;
   }
 
-  void publishDebug(const cv::Mat& full_bgr, const std::vector<cv::Rect>& hits_small,
-                    double scale, bool raw_hit) {
-    std::vector<cv::Rect> full_hits;
-    const double inv = (scale > 1e-6) ? (1.0 / scale) : 1.0;
-    for (const auto& r : hits_small) {
-      cv::Rect fr(static_cast<int>(r.x * inv), static_cast<int>(r.y * inv),
-                  static_cast<int>(r.width * inv), static_cast<int>(r.height * inv));
-      if (!full_bgr.empty()) fr &= cv::Rect(0, 0, full_bgr.cols, full_bgr.rows);
-      if (fr.area() > 0) full_hits.push_back(fr);
-    }
-    std::lock_guard lock(debug_mu_);
-    debug_bgr_ = full_bgr.clone();
-    debug_hits_ = std::move(full_hits);
-    debug_raw_hit_ = raw_hit;
+  /// Motion fraction inside ROI (original image coords).
+  float roiMotionFrac(const cv::Mat& gray_full, const cv::Rect& roi) {
+    if (!have_prev || prev_gray.size() != gray_full.size() || roi.area() <= 0) return 0.f;
+    cv::Rect r = roi & cv::Rect(0, 0, gray_full.cols, gray_full.rows);
+    if (r.area() <= 0) return 0.f;
+    cv::Mat diff;
+    cv::absdiff(gray_full(r), prev_gray(r), diff);
+    cv::threshold(diff, diff, 18, 255, cv::THRESH_BINARY);
+    return static_cast<float>(cv::countNonZero(diff)) / static_cast<float>(r.area());
   }
 
-  /// Prefer hands / lower frame; exclude face band (top ~42%).
-  bool detectActivePhoneUse(const cv::Mat& bgr, std::vector<cv::Rect>& hit_rects_small,
-                            double& used_scale) {
-    hit_rects_small.clear();
-    used_scale = 1.0;
-    if (bgr.empty()) return false;
+  /// phone_present vs phone_in_use (hand zone + motion in phone box).
+  bool evaluateInUse(const cv::Mat& bgr, std::vector<CameraSource::DebugBox>& boxes_out) {
+    boxes_out.clear();
+    if (!yolo_ok || bgr.empty()) return false;
 
-    cv::Mat small;
-    used_scale = 480.0 / std::max(bgr.cols, 1); // slightly sharper than 320
-    if (used_scale > 1.0) used_scale = 1.0;
-    cv::resize(bgr, small, cv::Size(), used_scale, used_scale, cv::INTER_AREA);
-
+    // Lower conf so tilted / landscape phones still detect (YOLO is weaker off-axis).
+    const auto dets = YoloDetector::filterCellPhones(yolo.detect(bgr, 0.22f, 0.45f), 0.22f);
     cv::Mat gray;
-    cv::cvtColor(small, gray, cv::COLOR_BGR2GRAY);
+    cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
     cv::GaussianBlur(gray, gray, cv::Size(5, 5), 0);
 
-    cv::Mat motion;
-    double motion_frac = 0.0;
-    if (have_prev && prev_gray.size() == gray.size()) {
-      cv::absdiff(gray, prev_gray, motion);
-      cv::threshold(motion, motion, 20, 255, cv::THRESH_BINARY);
-      // Ignore motion in face band for global gate
-      const int face_band = static_cast<int>(motion.rows * 0.42);
-      if (face_band > 0 && face_band < motion.rows) {
-        motion(cv::Rect(0, 0, motion.cols, face_band)).setTo(0);
-      }
-      motion_frac = static_cast<double>(cv::countNonZero(motion)) /
-                    static_cast<double>(std::max(1, motion.rows * motion.cols));
+    bool any_in_use = false;
+    // Only treat as "resting on desk" when deep in the bottom of the FOV + nearly still.
+    // Held phones (portrait or landscape/tilted) sit higher and count as in-use even if still.
+    const float desk_y = bgr.rows * 0.58f;
+
+    for (const auto& d : dets) {
+      CameraSource::DebugBox db;
+      db.rect = cv::Rect(cv::Point(static_cast<int>(d.x1), static_cast<int>(d.y1)),
+                         cv::Point(static_cast<int>(d.x2), static_cast<int>(d.y2)));
+      db.conf = d.confidence;
+      const float cy = d.cy();
+      const float motion = roiMotionFrac(gray, db.rect);
+      const float bw = d.width();
+      const float bh = d.height();
+      // Flat-ish on desk (any orientation) in the bottom band with almost no motion.
+      const bool resting_on_desk = (cy >= desk_y) && (motion < 0.035f);
+      // Default: any detected cell phone is in-use unless clearly parked on the desk.
+      // Covers horizontal / tilted holds mid-frame without requiring continuous motion.
+      db.in_use_candidate = !resting_on_desk;
+      (void)bw;
+      (void)bh;
+      boxes_out.push_back(db);
+      if (db.in_use_candidate) any_in_use = true;
     }
-    prev_gray = gray.clone();
+
+    prev_gray = gray;
     have_prev = true;
-
-    // Idle / talking head only in upper frame → low motion in hand zone
-    if (motion_frac < 0.0035) {
-      return false;
-    }
-
-    cv::Mat edges;
-    cv::Canny(gray, edges, 60, 160);
-    // Zero edges in face band so we never box faces
-    const int face_band = static_cast<int>(edges.rows * 0.42);
-    if (face_band > 0) {
-      edges(cv::Rect(0, 0, edges.cols, face_band)).setTo(0);
-    }
-
-    std::vector<std::vector<cv::Point>> contours;
-    cv::findContours(edges, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
-    const double frame_area = static_cast<double>(small.rows * small.cols);
-    const double y_min = small.rows * 0.45; // hands / desk — below mid
-    bool any = false;
-
-    for (const auto& c : contours) {
-      if (c.size() < 6) continue;
-      const cv::RotatedRect rr = cv::minAreaRect(c);
-      double w = rr.size.width, h = rr.size.height;
-      if (w <= 1 || h <= 1) continue;
-      if (w > h) std::swap(w, h);
-      const double aspect = h / w;
-      const double area = w * h;
-
-      // Phones are more elongated than faces (~1.1–1.5). Use stricter band.
-      if (aspect < 1.75 || aspect > 2.55) continue;
-      // Not tiny noise, not head-sized blobs
-      if (area < frame_area * 0.015 || area > frame_area * 0.12) continue;
-      // Must sit in lower half (exclude face/center-upper)
-      if (rr.center.y < y_min) continue;
-      // Reject very centered large blobs (face/torso)
-      const double nx = rr.center.x / small.cols;
-      if (nx > 0.25 && nx < 0.75 && area > frame_area * 0.08 && aspect < 1.9) continue;
-
-      if (motion.empty()) continue;
-      cv::Rect box = rr.boundingRect();
-      box &= cv::Rect(0, 0, motion.cols, motion.rows);
-      if (box.area() <= 0) continue;
-      // Box must not spill mostly into face band
-      if (box.y + box.height / 2 < face_band) continue;
-
-      const cv::Mat roi = motion(box);
-      const double roi_motion =
-          static_cast<double>(cv::countNonZero(roi)) / static_cast<double>(box.area());
-      if (roi_motion < 0.06) continue; // stronger than before
-
-      hit_rects_small.push_back(box);
-      any = true;
-    }
-    return any;
+    return any_in_use;
   }
 
-  bool updateDebounced(bool raw_hit) {
+  bool updateDebounced(bool raw_in_use) {
     const auto now = std::chrono::steady_clock::now();
-    auto sec = [](std::chrono::steady_clock::time_point a,
-                  std::chrono::steady_clock::time_point b) {
-      return std::chrono::duration<double>(b - a).count();
-    };
-
-    if (raw_hit) {
+    auto sec = [](auto a, auto b) { return std::chrono::duration<double>(b - a).count(); };
+    if (raw_in_use) {
       in_clearing_ = false;
       if (!in_candidate_) {
         in_candidate_ = true;
@@ -231,7 +168,7 @@ struct CameraSource::Impl {
       }
       if (!reported_visible_ && sec(candidate_since_, now) >= kOnHoldSec) {
         reported_visible_ = true;
-        logCam("active phone use ON (sustained motion+shape in hand zone)");
+        logCam("phone_in_use ON (YOLO cell phone + motion/zone)");
       }
     } else {
       in_candidate_ = false;
@@ -242,7 +179,7 @@ struct CameraSource::Impl {
         } else if (sec(clear_since_, now) >= kOffHoldSec) {
           reported_visible_ = false;
           in_clearing_ = false;
-          logCam("active phone use OFF (sustained idle — alarm can clear)");
+          logCam("phone_in_use OFF (sustained — alarm can clear)");
         }
       } else {
         in_clearing_ = false;
@@ -250,13 +187,19 @@ struct CameraSource::Impl {
     }
     return reported_visible_;
   }
+
+  void publishDebug(const cv::Mat& bgr, const std::vector<CameraSource::DebugBox>& boxes,
+                    bool raw) {
+    std::lock_guard lock(debug_mu_);
+    debug_bgr_ = bgr.clone();
+    debug_boxes_ = boxes;
+    debug_raw_ = raw;
+  }
 };
 
 CameraSource::CameraSource(std::string video_path, int target_fps)
     : impl_(std::make_unique<Impl>()) {
-  // Smooth preview: capture ~15fps; detect ~5fps
-  impl_->target_fps = clampFps(target_fps > 0 ? target_fps : 15);
-  if (impl_->target_fps < 10) impl_->target_fps = 15;
+  impl_->target_fps = clampFps(target_fps < 10 ? 15 : target_fps);
   impl_->detect_every_n_ = std::max(1, impl_->target_fps / 5);
 #if defined(__APPLE__)
   setenv("OPENCV_VIDEOIO_PRIORITY_LIST", "AVFOUNDATION,FFMPEG", 0);
@@ -266,8 +209,20 @@ CameraSource::CameraSource(std::string video_path, int target_fps)
     impl_->cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
     impl_->cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
     impl_->cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
-    impl_->cap.set(cv::CAP_PROP_FPS, 30);
   }
+  const auto model = resolveYoloModelPath();
+#if defined(FOCUSGAZE_HAS_YOLO)
+  impl_->yolo_ok = impl_->yolo.load(model);
+  if (!impl_->yolo_ok) {
+    logCam("YOLO unavailable (" + model.string() + ") — phone vision disabled (use inject)");
+  } else {
+    logCam("YOLO11n ready: " + model.string());
+  }
+#else
+  impl_->yolo_ok = false;
+  logCam("built without ONNX Runtime — phone vision disabled");
+  (void)model;
+#endif
 }
 
 CameraSource::~CameraSource() {
@@ -275,6 +230,7 @@ CameraSource::~CameraSource() {
 }
 
 bool CameraSource::isOpen() const { return impl_ && impl_->cap.isOpened(); }
+bool CameraSource::yoloReady() const { return impl_ && impl_->yolo_ok; }
 bool CameraSource::reportedVisible() const { return impl_ && impl_->reported_visible_; }
 
 CameraSource::DebugSnapshot CameraSource::copyDebugSnapshot() const {
@@ -282,9 +238,10 @@ CameraSource::DebugSnapshot CameraSource::copyDebugSnapshot() const {
   if (!impl_) return s;
   std::lock_guard lock(impl_->debug_mu_);
   if (!impl_->debug_bgr_.empty()) s.bgr = impl_->debug_bgr_.clone();
-  s.hit_rects = impl_->debug_hits_;
-  s.raw_hit = impl_->debug_raw_hit_;
+  s.boxes = impl_->debug_boxes_;
+  s.raw_in_use = impl_->debug_raw_;
   s.debounced_visible = impl_->reported_visible_;
+  s.yolo_loaded = impl_->yolo_ok;
   return s;
 }
 
@@ -307,28 +264,25 @@ bool CameraSource::pollPhoneVisible(bool& out_visible) {
     }
   }
 
-  // Always publish frame for smooth preview; run detector on subset of frames.
   ++impl_->frame_i_;
   const bool run_detect = (impl_->frame_i_ % impl_->detect_every_n_) == 0;
-  bool raw = false;
-  std::vector<cv::Rect> hits;
-  double scale = 1.0;
-  if (run_detect) {
-    raw = impl_->detectActivePhoneUse(frame, hits, scale);
-    out_visible = impl_->updateDebounced(raw);
-  } else {
-    // Keep last debounced state; still refresh preview without red boxes flicker
-    out_visible = impl_->reported_visible_;
-    std::lock_guard lock(impl_->debug_mu_);
-    // preserve last hit rects on preview for continuity unless cleared
-    impl_->debug_bgr_ = frame.clone();
-    // if not visible, clear rects so face boxes don't linger
-    if (!impl_->reported_visible_ && !impl_->debug_raw_hit_) {
-      impl_->debug_hits_.clear();
-    }
+  if (!impl_->yolo_ok) {
+    // No model: never claim in-use from vision
+    impl_->publishDebug(frame, {}, false);
+    out_visible = impl_->updateDebounced(false);
     return true;
   }
-  impl_->publishDebug(frame, hits, scale, raw);
+
+  if (run_detect) {
+    std::vector<DebugBox> boxes;
+    const bool raw = impl_->evaluateInUse(frame, boxes);
+    out_visible = impl_->updateDebounced(raw);
+    impl_->publishDebug(frame, boxes, raw);
+  } else {
+    out_visible = impl_->reported_visible_;
+    std::lock_guard lock(impl_->debug_mu_);
+    impl_->debug_bgr_ = frame.clone();
+  }
   return true;
 }
 
@@ -338,6 +292,7 @@ struct CameraSource::Impl {};
 CameraSource::CameraSource(std::string, int) : impl_(std::make_unique<Impl>()) {}
 CameraSource::~CameraSource() = default;
 bool CameraSource::isOpen() const { return false; }
+bool CameraSource::yoloReady() const { return false; }
 bool CameraSource::reportedVisible() const { return false; }
 bool CameraSource::pollPhoneVisible(bool& out_visible) {
   out_visible = false;

@@ -4,12 +4,11 @@
 
 namespace focusgaze {
 
-/// Live camera debug window (main thread only on macOS — uses OpenCV highgui / NSWindow).
+/// Live camera debug window (main thread only on macOS).
 class CameraPreview {
 public:
-  /// Show/update preview from camera snapshot. Call from main thread in serve loop.
-  void tick(const CameraSource* camera);
-
+  /// @return OpenCV waitKey code (0 if none / no OpenCV)
+  int tick(const CameraSource* camera);
   void close();
 
 private:

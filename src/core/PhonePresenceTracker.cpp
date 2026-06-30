@@ -21,6 +21,25 @@ void PhonePresenceTracker::reset() {
   visible_streak_start_ = 0;
 }
 
+void PhonePresenceTracker::clearAlarmLatch() {
+  alarm_latched_ = false;
+  non_visible_since_ = 0;
+}
+
+bool PhonePresenceTracker::shouldAlarmBeActive(EpochSeconds now) const {
+  if (!alarm_latched_) {
+    return false;
+  }
+  // If not currently in an active visible interval, honor clear timer strictly.
+  if (!currently_visible_) {
+    if (non_visible_since_ == 0) {
+      return false; // not visible and no timer — treat as cleared
+    }
+    return (now - non_visible_since_) < clear_cooldown_seconds_;
+  }
+  return true;
+}
+
 void PhonePresenceTracker::prune(EpochSeconds now) {
   if (window_seconds_ <= 0) return;
   const EpochSeconds cutoff = now - window_seconds_;
@@ -54,14 +73,6 @@ std::int64_t PhonePresenceTracker::cumulativeVisibleSeconds(EpochSeconds now) co
 
 bool PhonePresenceTracker::shouldRaiseAlarm(EpochSeconds now) const {
   return cumulativeUnlocked(now) > threshold_seconds_;
-}
-
-bool PhonePresenceTracker::shouldAlarmBeActive(EpochSeconds now) const {
-  if (!alarm_latched_) return false;
-  // Do not use currently_visible_ here — brief flickers would keep the alarm stuck on.
-  // Clear timer starts when samples go false; only sustained visible resets it.
-  if (non_visible_since_ == 0) return true;
-  return (now - non_visible_since_) < clear_cooldown_seconds_;
 }
 
 void PhonePresenceTracker::sample(EpochSeconds now, bool phone_visible) {
