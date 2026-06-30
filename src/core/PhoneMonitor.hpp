@@ -15,7 +15,7 @@ struct PhoneStatus {
   bool focus_on{false};
   bool phone_visible{false};
   std::int64_t cumulative_visible_seconds{0};
-  std::int64_t threshold_seconds{60};
+  std::int64_t threshold_seconds{5};
   std::int64_t window_seconds{1800};
   bool phone_alarm{false};
 };

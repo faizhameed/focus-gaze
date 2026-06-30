@@ -145,6 +145,11 @@ Settings loadOrCreateSettings() {
   }
   // Authoritative blocklist is blocklist.txt (auto-seeded if missing; never overwritten).
   settings.blocklist = loadOrCreateBlocklist();
+  // Temporary product default while tuning vision (overrides older settings.json values).
+  if (settings.phone_threshold_seconds != 5) {
+    settings.phone_threshold_seconds = 5;
+    dirty = true;
+  }
   if (settings.bridge_token.empty()) {
     settings.bridge_token = generateBridgeToken();
     dirty = true;

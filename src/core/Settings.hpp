@@ -17,7 +17,8 @@ struct Settings {
   std::vector<std::string> allowlist{};
 
   /// Cumulative phone-visible seconds that trigger alarm inside the rolling window.
-  std::int64_t phone_threshold_seconds{60};
+  /// Temporarily 5s for easier mobile-detection validation (raise later for production).
+  std::int64_t phone_threshold_seconds{5};
 
   /// Rolling window length for phone accumulation (seconds).
   std::int64_t phone_window_seconds{30 * 60};

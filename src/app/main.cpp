@@ -250,7 +250,7 @@ int main(int argc, char** argv) {
       const std::string fake = focusgaze::CameraSource::resolveVideoPathFromEnv();
       bool camera_ok = false;
 #if defined(FOCUSGAZE_HAS_OPENCV)
-      camera = std::make_unique<focusgaze::CameraSource>(fake, 3);
+      camera = std::make_unique<focusgaze::CameraSource>(fake, 15);
       camera_ok = camera->isOpen();
 #endif
       // Sticky last camera decision between throttled frames
@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
         return last_cam->load();
       };
 
-      focusgaze::VisionLoop vision(app.phone, visibility, wallNow, 400);
+      focusgaze::VisionLoop vision(app.phone, visibility, wallNow, 66);
       focusgaze::AlarmPresenter alarms_ui;
       alarms_ui.start();
       focusgaze::CameraPreview camera_preview;
@@ -316,7 +316,7 @@ int main(int argc, char** argv) {
                     << " phone_alarm=" << (ph.phone_alarm ? "on" : "off") << std::endl;
           last_phone_log = ph.phone_visible;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
       }
       vision.stop();
       camera_preview.close();

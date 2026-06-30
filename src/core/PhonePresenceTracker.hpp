@@ -10,9 +10,9 @@ namespace focusgaze {
 /// Rolling-window phone visibility; drives phone_window alarm (policy A: clear after cooldown off-frame).
 class PhonePresenceTracker {
 public:
-  PhonePresenceTracker(std::int64_t threshold_seconds = 60,
+  PhonePresenceTracker(std::int64_t threshold_seconds = 5,
                        std::int64_t window_seconds = 30 * 60,
-                       std::int64_t clear_cooldown_seconds = 3);
+                       std::int64_t clear_cooldown_seconds = 2);
 
   void setThresholdSeconds(std::int64_t s) { threshold_seconds_ = s; }
   void setWindowSeconds(std::int64_t s) { window_seconds_ = s; }
@@ -54,6 +54,7 @@ private:
   /// When phone became not visible while alarm was warranted; 0 if visible or never.
   EpochSeconds non_visible_since_{0};
   bool alarm_latched_{false};
+  EpochSeconds visible_streak_start_{0};
 };
 
 } // namespace focusgaze

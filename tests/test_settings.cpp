@@ -17,7 +17,7 @@ using focusgaze::test::ScopedDataRoot;
 TEST_CASE("Settings defaults include social blocklist and phone thresholds", "[settings]") {
   const auto s = Settings::defaults();
   REQUIRE_FALSE(s.blocklist.empty());
-  REQUIRE(s.phone_threshold_seconds == 60);
+  REQUIRE(s.phone_threshold_seconds == 5);
   REQUIRE(s.phone_window_seconds == 30 * 60);
   REQUIRE(s.privacy_redact == false);
   REQUIRE(s.alarm_sound == "default");
@@ -85,13 +85,14 @@ TEST_CASE("loadOrCreateSettings writes defaults when missing", "[settings]") {
 
   Settings s = loadOrCreateSettings();
   REQUIRE(std::filesystem::is_regular_file(path));
-  REQUIRE(s.phone_threshold_seconds == 60);
+  REQUIRE(s.phone_threshold_seconds == 5);
 
   s.phone_threshold_seconds = 45;
   REQUIRE(saveSettings(s));
 
   Settings again = loadOrCreateSettings();
-  REQUIRE(again.phone_threshold_seconds == 45);
+  // Temporary product policy forces 5s phone threshold while tuning vision.
+  REQUIRE(again.phone_threshold_seconds == 5);
 }
 
 TEST_CASE("loadFromFile fails on corrupt file without clobbering instance", "[settings]") {

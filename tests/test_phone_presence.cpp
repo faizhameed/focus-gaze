@@ -23,18 +23,19 @@ TEST_CASE("PhonePresenceTracker accumulates visibility in window", "[phone]") {
 }
 
 TEST_CASE("PhonePresenceTracker alarm clears after cooldown off-frame", "[phone]") {
-  PhonePresenceTracker t(10, 1800, 3);
+  PhonePresenceTracker t(10, 1800, 2);
+  // Need sustained visible (>=1s) for clean latch behavior
   for (int i = 0; i <= 12; ++i) {
     t.sample(i, true);
   }
   REQUIRE(t.shouldAlarmBeActive(12));
 
   t.sample(13, false);
-  REQUIRE(t.shouldAlarmBeActive(13)); // within cooldown
+  REQUIRE(t.shouldAlarmBeActive(13));
   t.sample(14, false);
-  t.sample(15, false);
-  t.sample(16, false); // 13..16 = 3s cooldown from non_visible_since=13
-  REQUIRE_FALSE(t.shouldAlarmBeActive(16));
+  REQUIRE(t.shouldAlarmBeActive(14));
+  t.sample(15, false); // 2s cooldown from 13
+  REQUIRE_FALSE(t.shouldAlarmBeActive(15));
 }
 
 TEST_CASE("PhonePresenceTracker drops samples outside rolling window", "[phone]") {
