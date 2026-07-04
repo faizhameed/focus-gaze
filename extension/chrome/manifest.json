@@ -1,15 +1,40 @@
 {
   "manifest_version": 3,
   "name": "focusGaze Bridge",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Sends active tab URLs to the local focusGaze app for focus monitoring.",
-  "permissions": ["tabs", "storage"],
-  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzY+OXi1WBH4TObKF7zQaqqnJK5XAXqYNuHsNlp3sbnFD4mFEm1x0P9WenNY6KjqeekyHCgSG2kvc5wT/lx/a4VnX3LYEcXzzzFEAdIFlhPoE8PSVnC8ibv3I8tlf3rpBAN47YAzhz7On1/Gr5itWTCsGcJRN0CL4/DbAAO7WEDcGCXNcXiY00m0E77Ja5Yx/Ne1MIlULxjfdI3Z3iwQ8gtYiQDnr5/1x5lHguAgSIRDONEUweaT4k6L91v2HvIxV6emgrE8hl0DbsgTSvmM2ruwxE2QgyyPpJDxY50ZCN22RrCP6tpckCIySa+KPSxJ+EeS1OpXBloLhG9527IzH8wIDAQAB",
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_title": "focusGaze Bridge",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "externally_connectable": {
+    "matches": [
+      "http://127.0.0.1/*",
+      "http://localhost/*"
+    ]
   }
 }

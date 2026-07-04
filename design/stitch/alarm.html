@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Focus Guard - Alarm Overlay</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Shared Theme Configuration -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-secondary-fixed-variant": "#5516be",
+            "secondary": "#d0bcff",
+            "primary": "#57f1db",
+            "on-error": "#690005",
+            "surface-dim": "#051424",
+            "outline-variant": "#3c4a46",
+            "primary-container": "#2dd4bf",
+            "on-secondary": "#3c0091",
+            "on-primary-container": "#00574d",
+            "background": "#051424",
+            "on-error-container": "#ffdad6",
+            "tertiary": "#5df3b6",
+            "primary-fixed": "#62fae3",
+            "primary-fixed-dim": "#3cddc7",
+            "on-tertiary-fixed": "#002114",
+            "secondary-fixed-dim": "#d0bcff",
+            "inverse-primary": "#006b5f",
+            "tertiary-fixed": "#68fcbf",
+            "tertiary-container": "#39d69c",
+            "surface": "#051424",
+            "on-tertiary": "#003825",
+            "surface-bright": "#2c3a4c",
+            "on-primary": "#003731",
+            "on-primary-fixed-variant": "#005047",
+            "error": "#ef4444",
+            "tertiary-fixed-dim": "#45dfa4",
+            "on-tertiary-container": "#00583c",
+            "secondary-fixed": "#e9ddff",
+            "inverse-surface": "#d4e4fa",
+            "surface-variant": "#273647",
+            "surface-tint": "#3cddc7",
+            "surface-container-lowest": "#010f1f",
+            "on-primary-fixed": "#00201c",
+            "surface-container-highest": "#273647",
+            "on-background": "#d4e4fa",
+            "on-secondary-container": "#c4abff",
+            "on-surface": "#d4e4fa",
+            "surface-container-high": "#1c2b3c",
+            "inverse-on-surface": "#233143",
+            "surface-container-low": "#0d1c2d",
+            "outline": "#859490",
+            "on-tertiary-fixed-variant": "#005137",
+            "on-surface-variant": "#bacac5",
+            "error-container": "#93000a",
+            "on-secondary-fixed": "#23005c",
+            "surface-container": "#122131",
+            "secondary-container": "#571bc1"
+          },
+          "borderRadius": {
+            "DEFAULT": "2px",
+            "lg": "4px",
+            "xl": "8px",
+            "full": "9999px"
+          },
+          "spacing": {
+            "md": "16px",
+            "sm": "8px",
+            "container-padding": "16px",
+            "xs": "4px",
+            "unit": "4px",
+            "lg": "24px",
+            "xl": "32px",
+            "gutter": "12px"
+          },
+          "fontFamily": {
+            "body-md": ["Inter"],
+            "label-sm": ["Inter"],
+            "body-lg": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-md": ["Inter"],
+            "headline-lg": ["Inter"]
+          },
+          "fontSize": {
+            "body-md": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+            "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "600"}],
+            "body-lg": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+            "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+            "headline-md": ["16px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+            "headline-lg": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600"}]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    @keyframes pulse-coral {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); border-color: rgba(239, 68, 68, 0.8); }
+      50% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 1); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.8); }
+    }
+
+    @keyframes text-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .animate-pulse-coral {
+      animation: pulse-coral 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    .animate-text-blink {
+      animation: text-blink 1.5s ease-in-out infinite;
+    }
+
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+
+    .glass-panel {
+      background: rgba(5, 20, 36, 0.8);
+      backdrop-filter: blur(12px);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background font-body-md selection:bg-error selection:text-on-error h-screen overflow-hidden">
+<!-- Background Content (Simulating a focused workspace under the overlay) -->
+<main class="w-full h-full p-xl flex flex-col gap-lg">
+<div class="flex justify-between items-center">
+<div class="h-8 w-32 bg-surface-container-high rounded-sm"></div>
+<div class="flex gap-md">
+<div class="h-8 w-8 bg-surface-container-high rounded-full"></div>
+<div class="h-8 w-8 bg-surface-container-high rounded-full"></div>
+</div>
+</div>
+<div class="grid grid-cols-12 gap-md flex-1">
+<div class="col-span-8 bg-surface-container-low border border-outline-variant/20 rounded-lg p-xl">
+<div class="space-y-md">
+<div class="h-6 w-1/3 bg-surface-container-high rounded-sm"></div>
+<div class="h-4 w-full bg-surface-container-high/50 rounded-sm"></div>
+<div class="h-4 w-full bg-surface-container-high/50 rounded-sm"></div>
+<div class="h-4 w-2/3 bg-surface-container-high/50 rounded-sm"></div>
+</div>
+</div>
+<div class="col-span-4 flex flex-col gap-md">
+<div class="h-48 bg-surface-container-low border border-outline-variant/20 rounded-lg"></div>
+<div class="h-full bg-surface-container-low border border-outline-variant/20 rounded-lg"></div>
+</div>
+</div>
+</main>
+<!-- Full-Screen Sticky Alarm Overlay -->
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-surface-container-lowest/80 backdrop-blur-xl transition-opacity duration-500" id="alarm-overlay">
+<!-- Alarm Center Card -->
+<div class="relative w-full max-w-[480px] mx-md p-lg bg-surface-bright border-2 border-error animate-pulse-coral flex flex-col items-center text-center shadow-2xl">
+<!-- Top Accent Bar -->
+<div class="absolute top-0 left-0 w-full h-1 bg-error"></div>
+<!-- Icon Section -->
+<div class="mb-md flex items-center justify-center">
+<span class="material-symbols-outlined text-[64px] text-error leading-none animate-text-blink" data-icon="notifications_active" style="font-variation-settings: 'FILL' 1;">notifications_active</span>
+</div>
+<!-- Header -->
+<h1 class="font-headline-lg text-headline-lg font-extrabold text-error tracking-widest mb-sm">
+        FOCUSGAZE ALARM
+      </h1>
+<!-- Divider -->
+<div class="w-12 h-px bg-error/30 mb-md"></div>
+<!-- Primary Message -->
+<p class="font-headline-md text-headline-md text-on-surface font-bold mb-xs leading-tight">
+        Close social / blocked tab(s). <br/>Put the phone down.
+      </p>
+<!-- Subtext -->
+<p class="font-body-lg text-body-lg text-on-surface-variant font-medium mb-xl">
+        This alarm stays until the distraction is cleared.
+      </p>
+<!-- Actions/Footer -->
+<div class="w-full pt-md border-t border-outline-variant/20 flex flex-col items-center gap-md">
+<div class="flex items-center gap-xs px-md py-xs bg-surface-container-high border border-outline-variant/40 rounded-sm">
+<span class="material-symbols-outlined text-[14px] text-on-surface-variant" data-icon="keyboard">keyboard</span>
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">
+            Press <span class="text-on-surface font-bold mx-xs">D</span> to dismiss phone alarm only
+          </span>
+</div>
+<!-- Live Status Indicators -->
+<div class="flex gap-lg">
+<div class="flex items-center gap-sm">
+<div class="w-2 h-2 rounded-full bg-error animate-pulse"></div>
+<span class="font-label-sm text-label-sm text-error/80 uppercase">Web: Blocked</span>
+</div>
+<div class="flex items-center gap-sm opacity-50">
+<div class="w-2 h-2 rounded-full bg-primary"></div>
+<span class="font-label-sm text-label-sm text-primary/80 uppercase">Focus Mode Active</span>
+</div>
+</div>
+</div>
+<!-- Corner Accents -->
+<div class="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-error"></div>
+<div class="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-error"></div>
+<div class="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-error"></div>
+<div class="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-error"></div>
+</div>
+<!-- Atmospheric Effect: Red Vignette -->
+<div class="pointer-events-none absolute inset-0 bg-radial-gradient from-transparent via-transparent to-error/5"></div>
+</div>
+<!-- Interaction Logic -->
+<script>
+    document.addEventListener('keydown', function(event) {
+      // Listen for 'D' or 'd' key press
+      if (event.key.toLowerCase() === 'd') {
+        const overlay = document.getElementById('alarm-overlay');
+        
+        // Visual feedback for dismissal (only phone alarm context implied)
+        const feedback = document.createElement('div');
+        feedback.className = 'fixed bottom-12 left-1/2 -translate-x-1/2 bg-surface-bright border border-primary text-primary font-bold px-lg py-sm shadow-xl z-50 transition-all duration-300 transform translate-y-0 opacity-100';
+        feedback.innerHTML = 'Phone Alarm Dismissed. Clearing distraction focus...';
+        document.body.appendChild(feedback);
+
+        // Flash screen teal briefly
+        overlay.classList.remove('bg-surface-container-lowest/80');
+        overlay.classList.add('bg-primary-container/10');
+        
+        setTimeout(() => {
+          feedback.classList.add('translate-y-4', 'opacity-0');
+          overlay.classList.remove('bg-primary-container/10');
+          overlay.classList.add('bg-surface-container-lowest/80');
+          setTimeout(() => feedback.remove(), 300);
+        }, 2000);
+      }
+    });
+
+    // Audio context simulation (silent visual alarm focus)
+    console.log("focusGaze ALARM system armed.");
+  </script>
+</body></html>

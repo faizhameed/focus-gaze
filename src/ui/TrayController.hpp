@@ -1,7 +1,7 @@
 #pragma once
 
 /// @file TrayController.hpp
-/// Qt system-tray UI for Focus toggle, camera preview, bridge, stats (Phase 5).
+/// Qt system-tray UI: Focus, optional camera monitoring, bridge, stats, dashboard.
 
 #include "bridge/HttpBrowserBridge.hpp"
 #include "core/AlarmPresenter.hpp"
@@ -12,6 +12,7 @@
 #include "core/Settings.hpp"
 #include "core/Storage.hpp"
 #include "ui/CameraWindow.hpp"
+#include "ui/DashboardWindow.hpp"
 #include "vision/CameraSource.hpp"
 #include "vision/VisionLoop.hpp"
 
@@ -37,11 +38,21 @@ public slots:
   void toggleFocus();
   void turnFocusOn();
   void turnFocusOff();
+  /// Enable/disable camera + phone vision (independent of Focus URL monitoring).
+  void setCameraMonitoring(bool enabled);
+  void toggleCameraMonitoring();
   void showCameraPreview(bool show);
   void toggleCameraPreview();
   void showStats();
   void showStatusMessage();
+  void showDashboard();
   void copyBridgeToken();
+  /// Open Chrome Web Store / install page for the extension (production entry).
+  void openExtensionInstallPage();
+  /// Open a one-time pair URL in Google Chrome so the extension receives the token.
+  void connectBrowserExtension();
+  /// One-click install of the Chrome extension into every Chrome profile (dev).
+  void installChromeExtension();
   void quitApp();
 
 private slots:
@@ -53,6 +64,9 @@ private:
   void ensureBridge();
   void stopBridge();
   void ensureCamera();
+  void releaseCamera();
+  void persistSettings();
+  void refreshDashboard();
   static EpochSeconds wallNow();
 
   Settings settings_;
@@ -64,20 +78,15 @@ private:
   std::unique_ptr<HttpBrowserBridge> bridge_;
   std::unique_ptr<CameraSource> camera_;
   CameraWindow* camera_window_{nullptr};
+  DashboardWindow* dashboard_{nullptr};
   AlarmPresenter alarms_ui_;
 
   QSystemTrayIcon* tray_{nullptr};
   QMenu* menu_{nullptr};
-  QAction* focus_action_{nullptr};
-  QAction* camera_action_{nullptr};
-  QAction* stats_action_{nullptr};
-  QAction* status_action_{nullptr};
-  QAction* token_action_{nullptr};
-  QAction* quit_action_{nullptr};
   QTimer* tick_timer_{nullptr};
   bool bridge_ok_{false};
-  bool camera_preview_wanted_{true}; // show camera by default when Focus ON
-  bool last_phone_log_{false};
+  /// User wants the preview window visible (only meaningful when camera monitoring is on).
+  bool camera_preview_wanted_{true};
 };
 
 } // namespace focusgaze

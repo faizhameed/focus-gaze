@@ -136,6 +136,10 @@ if(FOCUSGAZE_BUILD_GUI)
       src/ui/TrayController.hpp
       src/ui/CameraWindow.cpp
       src/ui/CameraWindow.hpp
+      src/ui/DashboardWindow.cpp
+      src/ui/DashboardWindow.hpp
+      src/ui/ChromeExtensionInstaller.cpp
+      src/ui/ChromeExtensionInstaller.hpp
     )
     target_link_libraries(focusGaze_gui PRIVATE focusgaze_core Qt6::Widgets)
     target_compile_definitions(focusGaze_gui PRIVATE FOCUSGAZE_GUI=1)

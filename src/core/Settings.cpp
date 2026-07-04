@@ -49,6 +49,7 @@ std::string Settings::toJsonString(int indent) const {
   j["alarm_sound"] = alarm_sound;
   j["privacy_redact"] = privacy_redact;
   j["resume_focus_on_launch"] = resume_focus_on_launch;
+  j["camera_monitoring_enabled"] = camera_monitoring_enabled;
   j["bridge_port"] = bridge_port;
   j["bridge_token"] = bridge_token;
   return j.dump(indent);
@@ -86,6 +87,9 @@ bool Settings::fromJsonString(const std::string& text) {
   }
   if (j.contains("resume_focus_on_launch") && j["resume_focus_on_launch"].is_boolean()) {
     next.resume_focus_on_launch = j["resume_focus_on_launch"].get<bool>();
+  }
+  if (j.contains("camera_monitoring_enabled") && j["camera_monitoring_enabled"].is_boolean()) {
+    next.camera_monitoring_enabled = j["camera_monitoring_enabled"].get<bool>();
   }
   if (j.contains("bridge_port") && j["bridge_port"].is_number_integer()) {
     next.bridge_port = j["bridge_port"].get<int>();

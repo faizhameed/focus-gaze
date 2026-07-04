@@ -7,6 +7,7 @@
 #include "core/Storage.hpp"
 
 #include <httplib.h>
+#include <nlohmann/json.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -65,6 +66,123 @@ TEST_CASE("HttpBrowserBridge health is public; status requires auth", "[bridge]"
   REQUIRE(st);
   REQUIRE(st->status == 200);
   REQUIRE(st->body.find("\"focus_on\"") != std::string::npos);
+
+  bridge.stop();
+}
+
+TEST_CASE("HttpBrowserBridge focus toggle and install hook require auth", "[bridge]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  FakeClock clock;
+  Settings settings = Settings::defaults();
+  settings.bridge_token = "tok-focus";
+  const int port = pickPort();
+  settings.bridge_port = port;
+
+  FocusSessionManager focus(db, settings, [&] { return clock(); });
+  BrowserMonitor mon(db, focus, settings);
+  HttpBrowserBridge bridge(mon, settings.bridge_token, port, nullptr, nullptr, &focus);
+  bool install_called = false;
+  bridge.setInstallHandler([&](bool relaunch) {
+    install_called = true;
+    nlohmann::json j;
+    j["ok"] = true;
+    j["message"] = "mock install";
+    j["relaunch"] = relaunch;
+    j["profiles"] = nlohmann::json::array({"Default", "Work"});
+    return j.dump();
+  });
+  REQUIRE(bridge.start());
+
+  httplib::Client client("127.0.0.1", port);
+  client.set_connection_timeout(1, 0);
+  client.set_read_timeout(2, 0);
+
+  auto unauth = client.Post("/v1/focus", "{\"on\":true}", "application/json");
+  REQUIRE(unauth);
+  REQUIRE(unauth->status == 401);
+
+  httplib::Headers headers{{"Authorization", "Bearer tok-focus"}};
+  auto on = client.Post("/v1/focus", headers, "{\"on\":true}", "application/json");
+  REQUIRE(on);
+  REQUIRE(on->status == 200);
+  REQUIRE(on->body.find("\"focus_on\":true") != std::string::npos);
+  REQUIRE(focus.isFocusOn());
+
+  auto off = client.Post("/v1/focus", headers, "{\"on\":false}", "application/json");
+  REQUIRE(off);
+  REQUIRE(off->status == 200);
+  REQUIRE_FALSE(focus.isFocusOn());
+
+  auto inst = client.Post("/v1/install-extension", headers, "{\"relaunch_chrome\":false}",
+                          "application/json");
+  REQUIRE(inst);
+  REQUIRE(inst->status == 200);
+  REQUIRE(install_called);
+  REQUIRE(inst->body.find("mock install") != std::string::npos);
+  REQUIRE(inst->body.find("Default") != std::string::npos);
+
+  bridge.stop();
+}
+
+TEST_CASE("HttpBrowserBridge one-time pair issues token once then expires", "[bridge]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  FakeClock clock;
+  Settings settings = Settings::defaults();
+  settings.bridge_token = "pair-secret-xyz";
+  const int port = pickPort();
+  settings.bridge_port = port;
+
+  FocusSessionManager focus(db, settings, [&] { return clock(); });
+  BrowserMonitor mon(db, focus, settings);
+  HttpBrowserBridge bridge(mon, settings.bridge_token, port, nullptr, nullptr, &focus);
+  REQUIRE(bridge.start());
+
+  httplib::Client client("127.0.0.1", port);
+  client.set_connection_timeout(1, 0);
+  client.set_read_timeout(2, 0);
+
+  auto start = client.Post("/v1/pair/start", "", "application/json");
+  REQUIRE(start);
+  REQUIRE(start->status == 200);
+  auto start_json = nlohmann::json::parse(start->body);
+  REQUIRE(start_json["ok"] == true);
+  REQUIRE(start_json.contains("code"));
+  const std::string code = start_json["code"].get<std::string>();
+  REQUIRE(code.size() == 32);
+
+  // Pair UI should be served for a live code.
+  auto ui = client.Get(("/v1/pair-ui?code=" + code).c_str());
+  REQUIRE(ui);
+  REQUIRE(ui->status == 200);
+  REQUIRE(ui->body.find("focusgaze.pair") != std::string::npos);
+  REQUIRE(ui->body.find(HttpBrowserBridge::chromeExtensionId()) != std::string::npos);
+
+  // First consume succeeds and returns the bridge token.
+  auto sess = client.Get(("/v1/pair/session?code=" + code).c_str());
+  REQUIRE(sess);
+  REQUIRE(sess->status == 200);
+  auto sess_json = nlohmann::json::parse(sess->body);
+  REQUIRE(sess_json["ok"] == true);
+  REQUIRE(sess_json["token"] == "pair-secret-xyz");
+  REQUIRE(sess_json["port"] == port);
+
+  // Second consume fails (one-time).
+  auto again = client.Get(("/v1/pair/session?code=" + code).c_str());
+  REQUIRE(again);
+  REQUIRE(again->status == 400);
+
+  // createPairUrl helper also works.
+  const std::string direct = bridge.createPairUrl();
+  REQUIRE(direct.find("/v1/pair-ui?code=") != std::string::npos);
+
+  auto help = client.Get("/v1/install-help");
+  REQUIRE(help);
+  REQUIRE(help->status == 200);
+  REQUIRE(help->body.find("Connect now") != std::string::npos);
 
   bridge.stop();
 }

@@ -32,6 +32,9 @@ struct Settings {
   /// Resume Focus Mode automatically on application launch.
   bool resume_focus_on_launch{false};
 
+  /// When false, Focus Mode still monitors browser URLs but does not use the camera / phone vision.
+  bool camera_monitoring_enabled{false};
+
   /// Local HTTP bridge port for the browser extension (Phase 2).
   int bridge_port{18765};
 

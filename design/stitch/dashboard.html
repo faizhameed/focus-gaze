@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>focusGaze - Desktop Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-low": "#161d1b",
+                        "inverse-primary": "#006b5f",
+                        "on-primary-container": "#00574d",
+                        "on-error": "#690005",
+                        "primary-fixed": "#62fae3",
+                        "on-secondary-container": "#c4abff",
+                        "error": "#ffb4ab",
+                        "on-background": "#dde4e1",
+                        "secondary-fixed": "#e9ddff",
+                        "surface-dim": "#0e1513",
+                        "inverse-surface": "#dde4e1",
+                        "on-secondary-fixed": "#23005c",
+                        "secondary-container": "#571bc1",
+                        "on-primary": "#003731",
+                        "on-secondary-fixed-variant": "#5516be",
+                        "on-primary-fixed": "#00201c",
+                        "surface-variant": "#2f3634",
+                        "secondary": "#d0bcff",
+                        "tertiary-fixed": "#ffdcc0",
+                        "on-primary-fixed-variant": "#005047",
+                        "inverse-on-surface": "#2b3230",
+                        "outline-variant": "#3c4a46",
+                        "surface-container": "#1a211f",
+                        "surface-container-highest": "#2f3634",
+                        "primary-container": "#2dd4bf",
+                        "on-error-container": "#ffdad6",
+                        "outline": "#859490",
+                        "surface-container-lowest": "#09100e",
+                        "tertiary-fixed-dim": "#ffb875",
+                        "tertiary": "#ffd1aa",
+                        "surface": "#0e1513",
+                        "on-tertiary-fixed": "#2d1600",
+                        "background": "#0e1513",
+                        "tertiary-container": "#ffac5a",
+                        "surface-bright": "#333b39",
+                        "on-surface": "#dde4e1",
+                        "surface-tint": "#3cddc7",
+                        "on-tertiary": "#4b2800",
+                        "on-tertiary-fixed-variant": "#6b3b00",
+                        "primary": "#57f1db",
+                        "on-tertiary-container": "#744000",
+                        "primary-fixed-dim": "#3cddc7",
+                        "on-surface-variant": "#bacac5",
+                        "on-secondary": "#3c0091",
+                        "secondary-fixed-dim": "#d0bcff",
+                        "surface-container-high": "#242b2a",
+                        "error-container": "#93000a",
+                        "mac-bg": "#0B0F14",
+                        "mac-surface": "#141A22",
+                        "mac-text": "#F1F5F9",
+                        "mac-accent-violet": "#8B5CF6"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-mobile": "20px",
+                        "lg": "24px",
+                        "margin-desktop": "40px",
+                        "unit": "4px",
+                        "sm": "8px",
+                        "md": "16px",
+                        "gutter": "20px",
+                        "xs": "4px",
+                        "xl": "32px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "label-md": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-md": ["Inter"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #0B0F14;
+            color: #F1F5F9;
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .mac-window {
+            width: 720px;
+            height: auto;
+            min-height: 840px;
+            margin: 40px auto;
+            background: #141A22;
+            border-radius: 12px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            overflow: hidden;
+            display: flex;
+            flex-col: column;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .glass-card:hover {
+            border-color: rgba(45, 212, 191, 0.3);
+        }
+
+        .pulse-teal {
+            box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.7);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(45, 212, 191, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0); }
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .score-ring {
+            transition: stroke-dashoffset 1s ease-out;
+        }
+
+        .progress-bar-track {
+            background: rgba(255, 255, 255, 0.05);
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+        }
+
+        .sidebar-icon-active {
+            color: #57f1db;
+            background: rgba(87, 241, 219, 0.1);
+        }
+    </style>
+</head>
+<body class="p-8">
+<!-- macOS App Window Container -->
+<div class="mac-window flex flex-col relative overflow-hidden">
+<!-- Header / Top Bar (Shared Component: TopNavBar Influence) -->
+<header class="h-16 flex items-center justify-between px-lg bg-surface/80 backdrop-blur-xl border-b border-white/5 z-50">
+<div class="flex items-center gap-md">
+<!-- Traffic Lights -->
+<div class="flex gap-2 mr-4">
+<div class="w-3 h-3 rounded-full bg-[#FF5F56]"></div>
+<div class="w-3 h-3 rounded-full bg-[#FFBD2E]"></div>
+<div class="w-3 h-3 rounded-full bg-[#27C93F]"></div>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-headline-md" style="font-variation-settings: 'FILL' 1;">visibility</span>
+<span class="font-headline-md font-bold tracking-tight text-on-surface">focusGaze</span>
+</div>
+</div>
+<!-- Focus Mode Toggle -->
+<div class="flex items-center gap-md">
+<div class="flex items-center bg-surface-container-highest rounded-full p-1 pr-4 gap-3 border border-white/5">
+<button class="bg-primary text-on-primary px-4 py-1.5 rounded-full font-label-md pulse-teal active:scale-95 transition-all">
+                        Focus Mode ON
+                    </button>
+<span class="text-label-sm uppercase tracking-widest text-on-surface-variant">Active</span>
+</div>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-mac-accent-violet/20 flex items-center justify-center border border-mac-accent-violet/30">
+<span class="material-symbols-outlined text-mac-accent-violet text-sm">account_circle</span>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 p-lg flex flex-col gap-lg overflow-y-auto">
+<!-- Section 2: Status Grid -->
+<div class="grid grid-cols-2 gap-md">
+<!-- Bridge Card -->
+<div class="glass-card p-md rounded-xl flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="material-symbols-outlined text-on-surface-variant">router</span>
+<span class="text-label-sm text-primary font-bold uppercase tracking-widest">Active</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-mac-text">Bridge</h3>
+<div class="flex items-center gap-2 text-body-md text-on-surface-variant">
+<div class="status-dot bg-primary"></div>
+<span>Online • Port 18765</span>
+</div>
+</div>
+</div>
+<!-- Camera Card -->
+<div class="glass-card p-md rounded-xl flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="material-symbols-outlined text-on-surface-variant">videocam</span>
+<div class="flex items-center gap-1.5 bg-primary/10 px-2 py-0.5 rounded text-[10px] text-primary border border-primary/20">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                            LIVE
+                        </div>
+</div>
+<div>
+<h3 class="font-headline-sm text-mac-text">Camera</h3>
+<p class="text-body-md text-on-surface-variant">Monitoring Background</p>
+</div>
+</div>
+<!-- Phone Card -->
+<div class="glass-card p-md rounded-xl flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="material-symbols-outlined text-on-surface-variant">smartphone</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-mac-text">Phone</h3>
+<p class="text-body-md text-on-surface-variant">Idle / Desk</p>
+</div>
+</div>
+<!-- Alarms Card -->
+<div class="glass-card p-md rounded-xl flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="material-symbols-outlined text-on-surface-variant">notifications_active</span>
+<span class="material-symbols-outlined text-primary text-sm">check_circle</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-mac-text">Active Alarms</h3>
+<div class="flex items-center gap-2 text-body-md text-on-surface-variant">
+<div class="status-dot bg-primary"></div>
+<span>None</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Section 3: Productivity Scoring -->
+<div class="glass-card p-lg rounded-xl flex items-center gap-xl bg-gradient-to-br from-surface-container to-mac-surface">
+<!-- Circular Score -->
+<div class="relative w-32 h-32 flex items-center justify-center">
+<svg class="w-full h-full -rotate-90">
+<circle class="text-white/5" cx="64" cy="64" fill="transparent" r="58" stroke="currentColor" stroke-width="8"></circle>
+<circle class="text-primary score-ring" cx="64" cy="64" fill="transparent" r="58" stroke="currentColor" stroke-dasharray="364.4" stroke-dashoffset="47.3" stroke-linecap="round" stroke-width="8"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="font-headline-lg text-mac-text leading-none">87</span>
+<span class="text-label-sm text-on-surface-variant">/ 100</span>
+</div>
+</div>
+<!-- Breakdown Bars -->
+<div class="flex-1 flex flex-col gap-md">
+<div class="space-y-2">
+<div class="flex justify-between text-label-md">
+<span class="text-on-surface">On-task</span>
+<span class="text-primary font-bold">92%</span>
+</div>
+<div class="progress-bar-track">
+<div class="progress-bar-fill bg-primary" style="width: 92%"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-label-md">
+<span class="text-on-surface">Blocked sites</span>
+<span class="text-on-surface-variant">4 attempts</span>
+</div>
+<div class="progress-bar-track">
+<div class="progress-bar-fill bg-mac-accent-violet" style="width: 15%"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-label-md">
+<span class="text-on-surface">Phone time</span>
+<span class="text-on-surface-variant">2m 14s</span>
+</div>
+<div class="progress-bar-track">
+<div class="progress-bar-fill bg-error" style="width: 8%"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Section 4: Quick Actions Row -->
+<div class="grid grid-cols-4 gap-md">
+<button class="glass-card flex flex-col items-center justify-center gap-sm p-md rounded-xl hover:bg-white/5 transition-all text-center">
+<span class="material-symbols-outlined text-mac-accent-violet">preview</span>
+<span class="text-label-sm text-on-surface leading-tight">Camera Preview</span>
+</button>
+<button class="glass-card flex flex-col items-center justify-center gap-sm p-md rounded-xl hover:bg-white/5 transition-all text-center">
+<span class="material-symbols-outlined text-mac-accent-violet">key</span>
+<span class="text-label-sm text-on-surface leading-tight">Copy Token</span>
+</button>
+<button class="glass-card flex flex-col items-center justify-center gap-sm p-md rounded-xl hover:bg-white/5 transition-all text-center">
+<span class="material-symbols-outlined text-mac-accent-violet">extension</span>
+<span class="text-label-sm text-on-surface leading-tight">Chrome Ext.</span>
+</button>
+<button class="glass-card flex flex-col items-center justify-center gap-sm p-md rounded-xl hover:bg-white/5 transition-all text-center">
+<span class="material-symbols-outlined text-mac-accent-violet">tune</span>
+<span class="text-label-sm text-on-surface leading-tight">Open Settings</span>
+</button>
+</div>
+<!-- Aesthetic Placeholder / Animation Space -->
+<div class="flex-1 min-h-[120px] rounded-xl overflow-hidden relative border border-white/5">
+
+<div class="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-mac-surface to-transparent p-md">
+<div class="text-center">
+<p class="font-label-md italic text-on-surface-variant">"Flow is the state of total immersion in an activity."</p>
+</div>
+</div>
+</div>
+</main>
+<!-- Section 5: Recent Session Strip (Footer) -->
+<footer class="h-14 bg-surface-container-lowest border-t border-white/5 px-lg flex items-center justify-between text-label-md">
+<div class="flex items-center gap-lg">
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant">Last Session Score:</span>
+<span class="text-primary font-bold">94</span>
+</div>
+<div class="w-[1px] h-4 bg-white/10"></div>
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant">Duration:</span>
+<span class="text-on-surface">2h 15m</span>
+</div>
+</div>
+<div class="flex items-center gap-lg">
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant">Alarms:</span>
+<span class="text-on-surface">0</span>
+</div>
+<div class="flex items-center gap-2 ml-4">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-primary font-medium">System Ready</span>
+</div>
+</div>
+</footer>
+</div>
+<!-- Background Atmospheric Effect -->
+<div class="fixed top-0 left-0 w-full h-full pointer-events-none -z-10 overflow-hidden">
+<div class="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] bg-primary/5 rounded-full blur-[120px]"></div>
+<div class="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-mac-accent-violet/5 rounded-full blur-[100px]"></div>
+</div>
+<script>
+        // Micro-interactions and subtle effects
+        document.querySelectorAll('.glass-card').forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.setProperty('--mouse-x', `${x}px`);
+                card.style.setProperty('--mouse-y', `${y}px`);
+            });
+        });
+
+        // Simple button active state visual feedback
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach(btn => {
+            btn.addEventListener('mousedown', () => {
+                btn.style.transform = 'scale(0.97)';
+            });
+            btn.addEventListener('mouseup', () => {
+                btn.style.transform = 'scale(1)';
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.style.transform = 'scale(1)';
+            });
+        });
+    </script>
+</body></html>

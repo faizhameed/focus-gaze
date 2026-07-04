@@ -4,6 +4,7 @@
 
 #include <sqlite3.h>
 
+#include <mutex>
 #include <utility>
 
 namespace focusgaze {
@@ -73,9 +74,13 @@ Storage& Storage::operator=(Storage&& other) noexcept {
   return *this;
 }
 
-bool Storage::isOpen() const { return db_ != nullptr; }
+bool Storage::isOpen() const {
+  std::lock_guard lock(mu_);
+  return db_ != nullptr;
+}
 
 void Storage::close() {
+  std::lock_guard lock(mu_);
   if (db_ != nullptr) {
     sqlite3_close(db_);
     db_ = nullptr;
@@ -152,6 +157,7 @@ void Storage::migrate() {
 }
 
 void Storage::open() {
+  std::lock_guard lock(mu_);
   if (db_ != nullptr) {
     return;
   }
@@ -161,7 +167,9 @@ void Storage::open() {
                          db_path_.parent_path().string());
     }
   }
-  const int rc = sqlite3_open(db_path_.string().c_str(), &db_);
+  // FULLMUTEX: serialize SQLite internal use; we also lock all public APIs.
+  const int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
+  const int rc = sqlite3_open_v2(db_path_.string().c_str(), &db_, flags, nullptr);
   if (rc != SQLITE_OK) {
     std::string msg = db_ ? sqlite3_errmsg(db_) : "sqlite3_open failed";
     if (db_) {
@@ -174,7 +182,9 @@ void Storage::open() {
 }
 
 SessionRecord Storage::createSession(EpochSeconds started_at, bool focus_enabled) {
-  if (!isOpen()) {
+  std::lock_guard lock(mu_);
+  // Do not call isOpen() here — it also locks mu_ (non-recursive) and deadlocks.
+  if (db_ == nullptr) {
     throw StorageError("database is not open");
   }
   sqlite3_stmt* stmt = nullptr;
@@ -201,7 +211,9 @@ SessionRecord Storage::createSession(EpochSeconds started_at, bool focus_enabled
 }
 
 bool Storage::endSession(std::int64_t session_id, EpochSeconds ended_at) {
-  if (!isOpen()) {
+  std::lock_guard lock(mu_);
+  // Do not call isOpen() here — it also locks mu_ (non-recursive) and deadlocks.
+  if (db_ == nullptr) {
     throw StorageError("database is not open");
   }
   sqlite3_stmt* stmt = nullptr;
@@ -221,7 +233,9 @@ bool Storage::endSession(std::int64_t session_id, EpochSeconds ended_at) {
 }
 
 std::optional<SessionRecord> Storage::getSession(std::int64_t session_id) const {
-  if (!isOpen()) {
+  std::lock_guard lock(mu_);
+  // Do not call isOpen() here — it also locks mu_ (non-recursive) and deadlocks.
+  if (db_ == nullptr) {
     throw StorageError("database is not open");
   }
   sqlite3_stmt* stmt = nullptr;
@@ -240,7 +254,9 @@ std::optional<SessionRecord> Storage::getSession(std::int64_t session_id) const 
 }
 
 std::optional<SessionRecord> Storage::getActiveSession() const {
-  if (!isOpen()) {
+  std::lock_guard lock(mu_);
+  // Do not call isOpen() here — it also locks mu_ (non-recursive) and deadlocks.
+  if (db_ == nullptr) {
     throw StorageError("database is not open");
   }
   sqlite3_stmt* stmt = nullptr;
@@ -259,7 +275,9 @@ std::optional<SessionRecord> Storage::getActiveSession() const {
 }
 
 std::vector<SessionRecord> Storage::listSessions(std::size_t limit) const {
-  if (!isOpen()) {
+  std::lock_guard lock(mu_);
+  // Do not call isOpen() here — it also locks mu_ (non-recursive) and deadlocks.
+  if (db_ == nullptr) {
     throw StorageError("database is not open");
   }
   sqlite3_stmt* stmt = nullptr;
@@ -279,7 +297,9 @@ std::vector<SessionRecord> Storage::listSessions(std::size_t limit) const {
 }
 
 std::int64_t Storage::insertUrlEvent(const UrlEventRecord& event) {
-  if (!isOpen()) {
+  std::lock_guard lock(mu_);
+  // Do not call isOpen() here — it also locks mu_ (non-recursive) and deadlocks.
+  if (db_ == nullptr) {
     throw StorageError("database is not open");
   }
   sqlite3_stmt* stmt = nullptr;
@@ -314,7 +334,9 @@ std::int64_t Storage::insertUrlEvent(const UrlEventRecord& event) {
 
 std::vector<UrlEventRecord> Storage::listUrlEventsForSession(std::int64_t session_id,
                                                             std::size_t limit) const {
-  if (!isOpen()) {
+  std::lock_guard lock(mu_);
+  // Do not call isOpen() here — it also locks mu_ (non-recursive) and deadlocks.
+  if (db_ == nullptr) {
     throw StorageError("database is not open");
   }
   sqlite3_stmt* stmt = nullptr;
@@ -337,7 +359,9 @@ std::vector<UrlEventRecord> Storage::listUrlEventsForSession(std::int64_t sessio
 std::int64_t Storage::insertPhoneEvent(std::optional<std::int64_t> session_id,
                                        EpochSeconds started_at,
                                        std::optional<EpochSeconds> ended_at, double confidence) {
-  if (!isOpen()) {
+  std::lock_guard lock(mu_);
+  // Do not call isOpen() here — it also locks mu_ (non-recursive) and deadlocks.
+  if (db_ == nullptr) {
     throw StorageError("database is not open");
   }
   sqlite3_stmt* stmt = nullptr;
@@ -368,7 +392,9 @@ std::int64_t Storage::insertPhoneEvent(std::optional<std::int64_t> session_id,
 }
 
 std::int64_t Storage::sumPhoneSecondsForSession(std::int64_t session_id) const {
-  if (!isOpen()) {
+  std::lock_guard lock(mu_);
+  // Do not call isOpen() here — it also locks mu_ (non-recursive) and deadlocks.
+  if (db_ == nullptr) {
     throw StorageError("database is not open");
   }
   sqlite3_stmt* stmt = nullptr;

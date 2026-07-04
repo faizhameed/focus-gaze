@@ -1,11 +1,12 @@
 #pragma once
 
 /// @file CameraWindow.hpp
-/// Qt widget showing camera frames (avoids OpenCV highgui under QApplication on macOS).
+/// Optional Qt preview of camera frames (phone detection runs without this window).
 
 #include <QLabel>
 #include <QWidget>
 #include <QString>
+#include <QCloseEvent>
 
 #if defined(FOCUSGAZE_HAS_OPENCV)
 #include <opencv2/core.hpp>
@@ -13,16 +14,20 @@
 
 namespace focusgaze {
 
-/// Simple always-on-top-capable preview window driven from the Qt main thread.
 class CameraWindow : public QWidget {
   Q_OBJECT
 public:
   explicit CameraWindow(QWidget* parent = nullptr);
 
-  /// Update image + optional alarm banner text.
   void setFrameBgr(const QImage& image, const QString& status_line, const QString& alarm_banner);
-
   void setHint(const QString& text);
+
+signals:
+  /// User closed the window with the red traffic-light / X — monitoring must keep running.
+  void previewClosedByUser();
+
+protected:
+  void closeEvent(QCloseEvent* event) override;
 
 private:
   QLabel* image_label_{nullptr};
@@ -31,7 +36,6 @@ private:
 };
 
 #if defined(FOCUSGAZE_HAS_OPENCV)
-/// Convert BGR cv::Mat to QImage (deep copy).
 QImage matBgrToQImage(const cv::Mat& bgr);
 #endif
 

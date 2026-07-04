@@ -3,6 +3,7 @@
 #include "core/Types.hpp"
 
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -17,7 +18,8 @@ public:
   using std::runtime_error::runtime_error;
 };
 
-/// SQLite-backed persistence for sessions and related Phase-1 tables.
+/// SQLite-backed persistence. All public methods are thread-safe (mutex).
+/// Required because the HTTP bridge thread and Qt main thread share one Storage.
 class Storage {
 public:
   explicit Storage(std::filesystem::path db_path);
@@ -53,11 +55,12 @@ public:
   std::int64_t sumPhoneSecondsForSession(std::int64_t session_id) const;
 
 private:
-  void migrate();
-  void execOrThrow(const char* sql) const;
+  void migrate(); // caller must hold mu_
+  void execOrThrow(const char* sql) const; // caller must hold mu_
 
   std::filesystem::path db_path_;
   sqlite3* db_{nullptr};
+  mutable std::mutex mu_;
 };
 
 } // namespace focusgaze

@@ -119,6 +119,21 @@ TEST_CASE("Storage insertUrlEvent and list by session", "[storage]") {
   REQUIRE(events[0].event == UrlEventType::Activated);
 }
 
+
+TEST_CASE("Storage getActiveSession does not deadlock after open", "[storage]") {
+  // Regression: methods that lock mu_ must not call isOpen() (also locks mu_).
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  REQUIRE_NOTHROW(db.open());
+  REQUIRE(db.isOpen());
+  REQUIRE_FALSE(db.getActiveSession().has_value());
+  const auto session = db.createSession(100, true);
+  REQUIRE(db.getActiveSession().has_value());
+  REQUIRE(db.getActiveSession()->id == session.id);
+  REQUIRE(db.endSession(session.id, 200));
+  REQUIRE_FALSE(db.getActiveSession().has_value());
+}
+
 TEST_CASE("Storage throws when used before open", "[storage]") {
   ScopedDataRoot scope;
   Storage db(scope.path() / "t.db");
