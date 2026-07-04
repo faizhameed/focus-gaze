@@ -34,3 +34,21 @@ install_manifest.txt
 .env
 .env.*
 *.local
+
+# Chrome extension signing key + packaged CRX (never commit private key)
+extension/keys/*.pem
+extension/**/*.crx
+**/focusgaze-*.crx
+
+# Local blocklists (may contain personal / sensitive domains — do not commit)
+# Committed template only: resources/sample_blocklist.txt
+blocklist.txt
+**/blocklist.txt
+!resources/sample_blocklist.txt
+resources/default_blocklist.txt
+src/core/default_blocklist.inc
+
+# Python / YOLO export
+.venv/
+yolo11n.pt
+__pycache__/

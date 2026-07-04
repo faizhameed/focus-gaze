@@ -275,9 +275,138 @@ Suggested event payload:
 
 - System-wide MITM proxy (privacy and trust cost).
 
+### Why the extension remains long-term
+
+- Sticky “alarm until tab closes” needs **tab identity + URL**, which the OS and passive network inspection (TLS SNI / DNS) cannot provide reliably for HTTPS.
+- Network-based detection may be added later as an **optional backup** (other apps, missing extension), not as the primary policy engine.
+- **Dev friction** (load unpacked, paste token, per Chrome profile) is **not** the final product UX; distribution and pairing are polished in packaging phases (below). Manual token entry every run is explicitly **temporary**.
+
 ---
 
-## 8. Camera and vision pipeline
+## 8. Browser extension distribution and install UX
+
+Chrome (and Chromium browsers) **do not allow a normal desktop installer to silently force-install an extension** for consumer users—the same way malware would. A supported product still **installs the app automatically** and gets the extension through **Chrome’s approved channels**, with **user acceptance** where Chrome requires it (or **org policy** on managed devices).
+
+### Goals after a full install
+
+1. focusGaze app installed (e.g. `/Applications`, optional login item / tray).
+2. Extension present in the user’s **primary** Chrome (or Edge) profile.
+3. **Paired once** to the local app so day-to-day use does not require re-pasting a token.
+4. Clear path if the user uses **additional Chrome profiles** (extensions are per-profile by Chrome’s design).
+
+### What Chrome allows
+
+| Approach | “Automatic” on app install? | User involvement | Use for focusGaze |
+|----------|----------------------------|------------------|-------------------|
+| **Chrome Web Store** (or Edge Add-ons) + “Add extension” / first-run button | No full silent install | User clicks **Add to Chrome** (or equivalent) once | **Default for consumers** |
+| **Enterprise policy** (`ExtensionInstallForcelist` via MDM / plist / Group Policy) | Yes, forced by org | Admin/IT configures policy; user may not see Store prompt | **Managed / enterprise SKU** |
+| **Load unpacked / sideload `.crx` from installer** | Partial / fragile | Developer mode; Chrome blocks casual sideload for security | **Dev / Phase 2 only** (current workflow) |
+| **Native Messaging host** installed with the app | Host yes; extension still needed | Little after extension is installed | **GA pairing path** (optional alongside or instead of long-lived Bearer token in UI) |
+| **Post-install open Store / setup URL** | Semi | One click from wizard | **Recommended GA onboarding** |
+
+### Recommended rollout
+
+#### Phase A — First-run wizard (ship with Mac UI / packaging)
+
+On first launch of the installed app (before or as part of Phase 5):
+
+1. Screen: **Connect your browser**.
+2. Primary CTA: **Install Chrome extension** → opens the Chrome Web Store listing (or Edge Add-ons).
+3. User completes **Add to Chrome** (required acceptance for consumer installs).
+4. **Automatic pairing**: extension obtains a stable credential (see Pairing) and shows **Connected**; app shows the same.
+5. If Chrome is not running, offer **Open Chrome and finish setup**.
+6. Permissions already planned: Camera, Notifications; plus guidance for extension.
+
+Manual “paste `bridge_token` into extension popup” remains acceptable for **local CLI / unpacked extension** development only.
+
+#### Phase B — Installer also “installs extension” (product meaning)
+
+**Mac (DMG / `.pkg`):**
+
+- Installs `focusGaze.app`.
+- Optionally installs a **Chrome Native Messaging** host manifest under the user or system NativeMessagingHosts path (and Chromium/Edge variants if supported).
+- **Does not** silently inject the extension into Chrome profiles for normal users.
+- Offers checkbox or post-install step: **Install browser extension now** → Store link / deep link; user accepts in Chrome.
+
+**Windows (MSI / Inno Setup / WiX):**
+
+- Same pattern: app + optional native messaging registration.
+- Extension via Store link or post-install launch of Chrome to the listing.
+- Enterprise docs: Group Policy / MDM **force-install** by extension ID.
+
+#### Phase C — Managed / truly automatic (optional SKU)
+
+For schools and companies:
+
+- Document Chrome enterprise policies to **force-install** the extension by ID + update URL (Web Store).
+- Deploy via **MDM** (e.g. Jamf, Intune) or Windows Group Policy.
+- Acceptance is at **organization** policy level; end users may not click Add to Chrome.
+
+This is the only widely supported **fully automatic** extension install path.
+
+### Pairing (persistent; not “token every run”)
+
+| Mechanism | User experience | Persistence |
+|-----------|-----------------|-------------|
+| **One-time pair from wizard** | “Connect” in extension after Store install | Token/credential in app data dir + extension `storage` (local or sync per profile) |
+| **Native Messaging** | Minimal UI after grant | Extension talks to local host; popup token field unnecessary |
+| **Short-lived pair code** | Enter one code on first connect | Then same as long-lived credential |
+
+**Product rule:** After GA onboarding, users must **not** need to re-enter a token on every app launch. Regenerating `bridge_token` only when the user resets pairing or wipes app data.
+
+### Multiple Chrome profiles
+
+- Chrome isolates extensions **per profile**. No consumer installer can reliably install into every profile on a machine without enterprise policy.
+- **Primary path:** complete setup for the **default / everyday** profile in the first-run wizard.
+- **Secondary path:** in-app or extension copy: “Not seeing site alerts? Enable focusGaze in this Chrome profile” → Store or re-open pairing.
+- Optional later: if the app is running, Focus is ON, Chrome is frontmost, and **no URL events** arrive for N minutes → gentle prompt to connect the extension in the active profile.
+
+Do **not** promise “one install covers all Chrome profiles forever” for consumer Chrome.
+
+### Other browsers (distribution note)
+
+| Browser | Plan |
+|---------|------|
+| **Chrome / Brave / Chromium** | MV3 extension; Chrome Web Store (or policy). |
+| **Edge** | Same extension family where possible; Edge Add-ons listing. |
+| **Firefox** | Separate add-on + AMO; same pairing concepts. |
+| **Safari** | **Safari Web Extension / App Extension** packaged with the Mac app (Xcode); user enables in Safari settings—different from Chrome Store. Plan as a **later Mac phase** if needed. |
+
+v1 target remains **Chrome-first** (current `extension/chrome/`); Edge is a low-cost follow-on; Safari is a separate packaging track.
+
+### Security rationale (document for stakeholders)
+
+Silent extension install from an arbitrary desktop installer would be abused by malware. Chrome requires Store review and/or explicit user action, or enterprise policy. Product copy should treat **“User clicks Add to Chrome / Accept once”** as **correct and expected**, not a defect.
+
+### What stays vs what changes after full product build
+
+| Layer | Stays long-term | Changes from current Phase 2 CLI |
+|--------|-----------------|-----------------------------------|
+| Extension (or Safari app extension) as URL/tab source | **Yes** | Better install + one-time pairing |
+| Local bridge (HTTP and/or Native Messaging) | **Yes** | Hide secrets from daily UX; auto-pair |
+| Manual token every run / every profile setup | **No** as GA UX | Stable credential after first-run |
+| File-based `blocklist.txt` (+ sample template in repo) | **Yes** | Also editable in settings UI later |
+| CLI `serve` | Useful for dev/ops | Main path = tray app runs bridge when Focus is on |
+| Installer “also installs extension” | **Yes, via Store + accept or MDM policy** | Not via silent profile injection for consumers |
+
+### Alignment with phases
+
+| When | Extension distribution work |
+|------|----------------------------|
+| **Phase 2 (current)** | Unpacked extension + Bearer token; document limitations. |
+| **Phase 5 (Mac installable)** | First-run wizard: Store link, pairing, permissions; optional Native Messaging host in `.app` / pkg. |
+| **Phase 6 (Windows)** | Same onboarding; installer registers host; Store/Add-ons link. |
+| **Post-GA / enterprise** | Policy docs for force-install; optional Safari extension. |
+
+### Non-goals for extension install
+
+- Silently installing into all Chrome profiles without user or admin consent.
+- Depending on permanent sideload / Developer mode for GA users.
+- Replacing the extension entirely with network MITM for sticky tab alarms in v1.
+
+---
+
+## 9. Camera and vision pipeline
 
 1. Capture at **2–5 FPS** while Focus ON (configurable).
 2. Background thread: frame → optional person presence → phone-like object detection (OpenCV DNN / ONNX).
@@ -289,7 +418,7 @@ Suggested event payload:
 
 ---
 
-## 9. Platform permissions
+## 10. Platform permissions
 
 ### macOS
 
@@ -312,7 +441,7 @@ Bundle ID example: `com.yourorg.focusgaze`.
 
 ---
 
-## 10. Repository layout
+## 11. Repository layout
 
 ```text
 focusGaze/
@@ -348,7 +477,7 @@ focusGaze/
 
 ---
 
-## 11. Phased implementation plan
+## 12. Phased implementation plan
 
 ### Phase 0 — Project skeleton (1–2 days)
 
@@ -404,10 +533,11 @@ focusGaze/
 
 1. `MACOSX_BUNDLE`, icon, versioning.
 2. Code signing (Developer ID) and notarization for distribution.
-3. DMG or `.pkg`; first-run wizard (permissions + extension install link).
-4. Optional Sparkle auto-update (deferrable).
+3. DMG or `.pkg`; first-run wizard (permissions + **Connect browser** / Web Store link + pairing — see **§8**).
+4. Optional Native Messaging host install alongside the app.
+5. Optional Sparkle auto-update (deferrable).
 
-**Exit criteria:** Clean Mac install; Focus Mode works after permissions + extension.
+**Exit criteria:** Clean Mac install; Focus Mode works after permissions + extension accepted in Chrome + one-time pairing (no daily token paste).
 
 ### Phase 6 — Windows portability (3–5 days, after Mac is solid)
 
@@ -422,7 +552,7 @@ focusGaze/
 
 ---
 
-## 12. MVP vs later
+## 13. MVP vs later
 
 | Tier | Scope |
 |------|--------|
@@ -435,7 +565,7 @@ Rationale: URL enforcement is more deterministic early than vision; validate UX 
 
 ---
 
-## 13. Environment variables (dev and test)
+## 14. Environment variables (dev and test)
 
 | Variable | Purpose |
 |----------|---------|
@@ -455,7 +585,7 @@ FOCUSGAZE_DATA_DIR=/tmp/fg-test FOCUSGAZE_PORT=18765 ./build/bin/focusGaze
 
 ---
 
-## 14. Local testing on macOS
+## 15. Local testing on macOS
 
 ### 14.1 Dev run loop (prefer build tree over installer)
 
@@ -593,7 +723,7 @@ cmake --build build -j && ctest --test-dir build --output-on-failure
 
 ---
 
-## 15. Risks and mitigations
+## 16. Risks and mitigations
 
 | Risk | Mitigation |
 |------|------------|
@@ -608,19 +738,19 @@ cmake --build build -j && ctest --test-dir build --output-on-failure
 
 ---
 
-## 16. Open decisions (lock before or during Phase 0–2)
+## 17. Open decisions (lock before or during Phase 0–2)
 
 1. **UI toolkit:** Qt 6 (recommended) vs Dear ImGui.
 2. **Blocklist editing:** defaults only in MVP vs full settings UI day one.
 3. **Phone alarm clear:** policy A (leave frame) vs B (timed) — **recommend A**.
-4. **Browsers in v1:** Chrome only vs Chrome + Safari (Safari needs different distribution story).
-5. **Distribution:** personal unsigned DMG first vs Developer ID from the start.
+4. **Browsers in v1:** Chrome only vs Chrome + Safari (Safari needs different distribution story — see **§8**).
+5. **Distribution:** personal unsigned DMG first vs Developer ID from the start; extension via Web Store + user Accept (not silent force-install for consumers).
 6. **Cloud:** never in product vision vs optional later sync.
 7. **Alarm on multiple reasons:** single combined overlay vs stacked reasons list — **recommend stacked reasons in one overlay**.
 
 ---
 
-## 17. Immediate next implementation steps
+## 18. Immediate next implementation steps
 
 When implementation begins in this repository:
 
@@ -635,7 +765,7 @@ Keep Windows adapter files as **stubs** from Phase 0 so portability stays visibl
 
 ---
 
-## 18. Document maintenance
+## 19. Document maintenance
 
 - Update this file when policy defaults, schema, or phase exit criteria change.
 - Prefer small PRs aligned to phases (0 → 6).

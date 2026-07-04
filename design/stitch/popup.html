@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            width: 320px;
+            height: 440px;
+            margin: 0;
+            overflow: hidden;
+            background-color: #051424; /* background from theme */
+        }
+        .glass-card {
+            background: rgba(20, 26, 34, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid #243041;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+        }
+        /* Custom scrollbar for small containers if needed */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #243041;
+            border-radius: 10px;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "outline": "#859490",
+                      "surface-container-low": "#0d1c2d",
+                      "on-error": "#690005",
+                      "primary-fixed-dim": "#3cddc7",
+                      "surface-bright": "#2c3a4c",
+                      "on-surface-variant": "#bacac5",
+                      "on-primary-fixed-variant": "#005047",
+                      "surface-container": "#122131",
+                      "inverse-primary": "#006b5f",
+                      "on-tertiary": "#003825",
+                      "on-primary-fixed": "#00201c",
+                      "surface-variant": "#273647",
+                      "primary-container": "#2dd4bf",
+                      "on-secondary-fixed": "#23005c",
+                      "tertiary-fixed": "#68fcbf",
+                      "surface-container-highest": "#273647",
+                      "primary": "#57f1db",
+                      "background": "#051424",
+                      "error": "#ffb4ab",
+                      "outline-variant": "#3c4a46",
+                      "on-background": "#d4e4fa",
+                      "on-tertiary-fixed-variant": "#005137",
+                      "surface-container-lowest": "#010f1f",
+                      "surface-tint": "#3cddc7",
+                      "tertiary": "#5df3b6",
+                      "on-secondary-fixed-variant": "#5516be",
+                      "on-primary-container": "#00574d",
+                      "tertiary-container": "#39d69c",
+                      "on-error-container": "#ffdad6",
+                      "surface-container-high": "#1c2b3c",
+                      "on-secondary-container": "#c4abff",
+                      "on-surface": "#d4e4fa",
+                      "tertiary-fixed-dim": "#45dfa4",
+                      "on-secondary": "#3c0091",
+                      "on-tertiary-fixed": "#002114",
+                      "secondary": "#d0bcff",
+                      "secondary-fixed-dim": "#d0bcff",
+                      "inverse-on-surface": "#233143",
+                      "secondary-fixed": "#e9ddff",
+                      "inverse-surface": "#d4e4fa",
+                      "primary-fixed": "#62fae3",
+                      "surface": "#051424",
+                      "secondary-container": "#571bc1",
+                      "surface-dim": "#051424",
+                      "error-container": "#93000a",
+                      "on-tertiary-container": "#00583c",
+                      "on-primary": "#003731"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "unit": "4px",
+                      "lg": "24px",
+                      "xs": "4px",
+                      "md": "16px",
+                      "container-padding": "16px",
+                      "sm": "8px",
+                      "gutter": "12px",
+                      "xl": "32px"
+              },
+              "fontFamily": {
+                      "label-sm": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "headline-lg": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "body-md": ["Inter"],
+                      "label-md": ["Inter"]
+              },
+              "fontSize": {
+                      "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "600"}],
+                      "headline-md": ["16px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                      "headline-lg": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                      "body-lg": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "body-md": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+                      "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}]
+              }
+            },
+          },
+        }
+      </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="flex flex-col text-on-surface">
+<!-- Header Section (TopAppBar Shared Component Mapping) -->
+<header class="flex items-center justify-between px-md py-sm w-full bg-surface/80 backdrop-blur-xl border-b border-outline-variant/30 shadow-sm sticky top-0 z-50">
+<div class="flex items-center gap-sm">
+<div class="w-8 h-8 rounded-full bg-primary-container/20 flex items-center justify-center border border-primary/30">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">visibility</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg font-bold text-primary tracking-tight">focusGaze</h1>
+</div>
+<div class="bg-tertiary-container/10 border border-tertiary/20 px-sm py-xs rounded-full">
+<span class="text-tertiary font-label-sm text-label-sm uppercase tracking-widest flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
+                Bridge online
+            </span>
+</div>
+</header>
+<main class="flex-1 px-md py-md space-y-md overflow-y-auto">
+<!-- Focus Mode Card -->
+<section class="glass-card rounded-xl p-md flex items-center justify-between transition-all hover:border-primary/20">
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface">Focus Mode</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Browser URL monitoring</p>
+</div>
+<button class="w-11 h-6 bg-primary-container rounded-full p-1 transition-colors relative flex items-center" id="focusToggle" onclick="this.classList.toggle('bg-primary-container'); this.querySelector('.thumb').classList.toggle('translate-x-5')">
+<div class="thumb w-4 h-4 bg-white rounded-full shadow-md transition-transform transform translate-x-5"></div>
+</button>
+</section>
+<!-- Camera Monitoring Card -->
+<section class="glass-card rounded-xl p-md flex items-center justify-between transition-all hover:border-primary/20">
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface">Camera Monitoring</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Phone detection (background)</p>
+</div>
+<button class="w-11 h-6 bg-outline-variant rounded-full p-1 transition-colors relative flex items-center" id="cameraToggle" onclick="this.classList.toggle('bg-primary-container'); this.querySelector('.thumb').classList.toggle('translate-x-5')">
+<div class="thumb w-4 h-4 bg-white rounded-full shadow-md transition-transform transform"></div>
+</button>
+</section>
+<!-- Bridge Settings Section -->
+<div class="space-y-sm">
+<h3 class="font-label-md text-label-md text-outline uppercase tracking-wider px-xs">Bridge Settings</h3>
+<div class="glass-card rounded-xl p-md space-y-md">
+<div class="flex items-center justify-between">
+<span class="font-body-lg text-body-lg text-on-surface-variant">Port 18765</span>
+<div class="flex items-center gap-xs">
+<span class="font-label-sm text-label-sm text-tertiary">Enabled</span>
+<button class="w-8 h-4.5 bg-tertiary-container rounded-full p-0.5 transition-colors relative flex items-center" onclick="this.classList.toggle('bg-tertiary-container'); this.querySelector('.thumb').classList.toggle('translate-x-3')">
+<div class="thumb w-3.5 h-3.5 bg-white rounded-full shadow-sm transition-transform transform translate-x-3"></div>
+</button>
+</div>
+</div>
+<div class="relative group">
+<input class="w-full bg-background/50 border border-outline-variant rounded-lg px-md py-sm font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary/50 transition-colors cursor-default" readonly="" type="password" value="••••••••••••"/>
+<span class="absolute right-3 top-1/2 -translate-y-1/2 font-label-sm text-label-sm text-outline group-hover:text-primary cursor-pointer transition-colors">Token</span>
+</div>
+</div>
+</div>
+<!-- Action Buttons -->
+<div class="pt-sm space-y-sm">
+<button class="w-full bg-primary-container text-on-primary-container font-headline-md text-headline-md py-sm rounded-lg hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-primary/10">
+                Save settings
+            </button>
+<button class="w-full flex items-center justify-center gap-sm border border-outline-variant text-on-surface-variant font-label-md text-label-md py-sm rounded-lg hover:bg-surface-variant/30 active:scale-[0.98] transition-all">
+<span class="material-symbols-outlined text-[16px]">download</span>
+                Install to all Chrome profiles
+            </button>
+</div>
+</main>
+<!-- Footer (Shared Component Mapping) -->
+<footer class="flex flex-col items-center gap-xs py-sm w-full bg-transparent mt-auto border-t border-outline-variant/10">
+<p class="font-label-sm text-label-sm text-outline text-center px-md">
+            Copy token from desktop app tray menu
+        </p>
+<div class="flex gap-md opacity-60">
+<span class="font-label-sm text-label-sm text-outline">v1.0.4</span>
+<span class="font-label-sm text-label-sm text-outline">•</span>
+<a class="font-label-sm text-label-sm text-outline hover:text-primary transition-colors" href="#">Documentation</a>
+</div>
+</footer>
+<script>
+        // Micro-interaction for the password field to "reveal" on hover or simulate focus
+        const tokenInput = document.querySelector('input[type="password"]');
+        tokenInput.addEventListener('mouseenter', () => {
+            // tokenInput.type = 'text'; // Optional: reveal token on hover
+        });
+
+        // Add subtle parallax glow following cursor (restricted to main container)
+        document.addEventListener('mousemove', (e) => {
+            const glow = document.createElement('div');
+            // This is just a conceptual micro-interaction placeholder 
+            // for the 'digital flow' aesthetic mentioned in the brief.
+        });
+    </script>
+</body></html>

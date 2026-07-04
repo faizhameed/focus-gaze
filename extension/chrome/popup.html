@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>focusGaze</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6" />
+            <ellipse cx="12" cy="12" rx="5" ry="3.2" stroke="currentColor" stroke-width="1.6" />
+            <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+          </svg>
+        </div>
+        <h1>focusGaze</h1>
+      </div>
+      <div id="statusPill" class="pill pill-offline" title="Bridge connection status">
+        <span class="dot"></span>
+        <span id="statusText">Checking…</span>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="card row">
+        <div>
+          <h2>Focus Mode</h2>
+          <p class="sub">Browser URL monitoring</p>
+        </div>
+        <button
+          type="button"
+          id="focusToggle"
+          class="toggle"
+          role="switch"
+          aria-checked="false"
+          aria-label="Focus Mode"
+        >
+          <span class="thumb"></span>
+        </button>
+      </section>
+
+      <section class="card row">
+        <div>
+          <h2>Camera monitoring</h2>
+          <p class="sub">Phone detection (background)</p>
+        </div>
+        <button
+          type="button"
+          id="cameraToggle"
+          class="toggle"
+          role="switch"
+          aria-checked="false"
+          aria-label="Camera monitoring"
+          disabled
+          title="Controlled from the focusGaze desktop app"
+        >
+          <span class="thumb"></span>
+        </button>
+      </section>
+
+      <section class="settings">
+        <h3 class="section-label">Bridge settings</h3>
+        <div class="card stack">
+          <label class="field">
+            <span>Port</span>
+            <input id="port" type="number" min="1" max="65535" inputmode="numeric" />
+          </label>
+          <label class="field">
+            <span>Token</span>
+            <div class="token-wrap">
+              <input id="token" type="password" autocomplete="off" spellcheck="false" />
+              <button type="button" id="toggleToken" class="ghost" title="Show or hide token">Show</button>
+            </div>
+          </label>
+          <label class="check-row">
+            <input id="enabled" type="checkbox" />
+            <span>Extension bridge enabled</span>
+          </label>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button type="button" id="save" class="btn primary">Save settings</button>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <p>Prefer <strong>Connect browser</strong> in the focusGaze app — token is applied automatically. Manual paste is only a fallback.</p>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
