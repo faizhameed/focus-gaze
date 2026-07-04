@@ -25,7 +25,8 @@ void logCam(const std::string& msg) {
 }
 
 #if defined(FOCUSGAZE_HAS_OPENCV)
-bool tryOpenCapture(cv::VideoCapture& cap, const std::string& video_path) {
+/// Open a single device index (or video file). Does not scan other indices.
+bool tryOpenCapture(cv::VideoCapture& cap, int device_index, const std::string& video_path) {
   if (!video_path.empty()) {
 #if defined(__APPLE__)
     if (cap.open(video_path, cv::CAP_AVFOUNDATION) && cap.isOpened()) return true;
@@ -33,32 +34,34 @@ bool tryOpenCapture(cv::VideoCapture& cap, const std::string& video_path) {
 #endif
     return cap.open(video_path) && cap.isOpened();
   }
+  if (device_index < 0) device_index = 0;
 #if defined(__APPLE__)
-  for (int idx = 0; idx <= 2; ++idx) {
-    cap.release();
-    if (cap.open(idx, cv::CAP_AVFOUNDATION) && cap.isOpened()) {
-      cv::Mat p;
-      for (int t = 0; t < 8; ++t) {
-        if (cap.read(p) && !p.empty()) {
-          logCam("opened camera index=" + std::to_string(idx) + " CAP_AVFOUNDATION");
-          return true;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-      }
-    }
-  }
-#endif
-  for (int idx = 0; idx <= 2; ++idx) {
-    cap.release();
-    if (cap.open(idx) && cap.isOpened()) {
-      cv::Mat p;
-      if (cap.read(p) && !p.empty()) {
-        logCam("opened camera index=" + std::to_string(idx));
+  cap.release();
+  if (cap.open(device_index, cv::CAP_AVFOUNDATION) && cap.isOpened()) {
+    cv::Mat probe;
+    for (int t = 0; t < 10; ++t) {
+      if (cap.read(probe) && !probe.empty()) {
+        logCam("opened camera index=" + std::to_string(device_index) + " CAP_AVFOUNDATION");
         return true;
       }
+      std::this_thread::sleep_for(std::chrono::milliseconds(40));
     }
+    // Opened but no frames (often Continuity / denied permission) — treat as failure.
+    logCam("camera index=" + std::to_string(device_index) + " opened but produced no frames");
+    cap.release();
   }
-  logCam("camera open failed");
+#endif
+  cap.release();
+  if (cap.open(device_index) && cap.isOpened()) {
+    cv::Mat probe;
+    if (cap.read(probe) && !probe.empty()) {
+      logCam("opened camera index=" + std::to_string(device_index));
+      return true;
+    }
+    logCam("camera index=" + std::to_string(device_index) + " open without frames");
+    cap.release();
+  }
+  logCam("camera open failed index=" + std::to_string(device_index));
   return false;
 }
 #endif
@@ -69,6 +72,7 @@ bool tryOpenCapture(cv::VideoCapture& cap, const std::string& video_path) {
 
 struct CameraSource::Impl {
   cv::VideoCapture cap;
+  int device_index_{0};
   int target_fps{15};
   int detect_every_n_{3};
   int frame_i_{0};
@@ -197,14 +201,15 @@ struct CameraSource::Impl {
   }
 };
 
-CameraSource::CameraSource(std::string video_path, int target_fps)
+CameraSource::CameraSource(int device_index, std::string video_path, int target_fps)
     : impl_(std::make_unique<Impl>()) {
+  impl_->device_index_ = device_index < 0 ? 0 : device_index;
   impl_->target_fps = clampFps(target_fps < 10 ? 15 : target_fps);
   impl_->detect_every_n_ = std::max(1, impl_->target_fps / 5);
 #if defined(__APPLE__)
   setenv("OPENCV_VIDEOIO_PRIORITY_LIST", "AVFOUNDATION,FFMPEG", 0);
 #endif
-  tryOpenCapture(impl_->cap, video_path);
+  tryOpenCapture(impl_->cap, impl_->device_index_, video_path);
   if (impl_->cap.isOpened()) {
     impl_->cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
     impl_->cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
@@ -231,6 +236,51 @@ CameraSource::~CameraSource() {
 
 bool CameraSource::isOpen() const { return impl_ && impl_->cap.isOpened(); }
 bool CameraSource::yoloReady() const { return impl_ && impl_->yolo_ok; }
+int CameraSource::deviceIndex() const { return impl_ ? impl_->device_index_ : 0; }
+
+std::vector<CameraDeviceInfo> CameraSource::listDevices(int max_index) {
+  std::vector<CameraDeviceInfo> out;
+#if defined(FOCUSGAZE_HAS_OPENCV)
+  if (max_index < 0) max_index = 0;
+  if (max_index > 16) max_index = 16;
+#if defined(__APPLE__)
+  setenv("OPENCV_VIDEOIO_PRIORITY_LIST", "AVFOUNDATION,FFMPEG", 0);
+#endif
+  for (int idx = 0; idx <= max_index; ++idx) {
+    cv::VideoCapture cap;
+    bool ok = false;
+#if defined(__APPLE__)
+    if (cap.open(idx, cv::CAP_AVFOUNDATION) && cap.isOpened()) {
+      cv::Mat probe;
+      for (int t = 0; t < 6; ++t) {
+        if (cap.read(probe) && !probe.empty()) { ok = true; break; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+      }
+    }
+#endif
+    if (!ok) {
+      cap.release();
+      if (cap.open(idx) && cap.isOpened()) {
+        cv::Mat probe;
+        if (cap.read(probe) && !probe.empty()) ok = true;
+      }
+    }
+    cap.release();
+    if (!ok) continue;
+    CameraDeviceInfo info;
+    info.index = idx;
+    // OpenCV rarely exposes friendly names; give stable labels for the UI.
+    info.name = "Camera " + std::to_string(idx);
+    if (idx == 0) info.name += " (often built-in / Continuity if iPhone is preferred by macOS)";
+    else info.name += " (external or secondary)";
+    out.push_back(info);
+  }
+#else
+  (void)max_index;
+#endif
+  return out;
+}
+
 bool CameraSource::reportedVisible() const { return impl_ && impl_->reported_visible_; }
 
 CameraSource::DebugSnapshot CameraSource::copyDebugSnapshot() const {
@@ -288,11 +338,15 @@ bool CameraSource::pollPhoneVisible(bool& out_visible) {
 
 #else
 
-struct CameraSource::Impl {};
-CameraSource::CameraSource(std::string, int) : impl_(std::make_unique<Impl>()) {}
+struct CameraSource::Impl { int device_index_{0}; };
+CameraSource::CameraSource(int device_index, std::string, int) : impl_(std::make_unique<Impl>()) {
+  impl_->device_index_ = device_index < 0 ? 0 : device_index;
+}
 CameraSource::~CameraSource() = default;
 bool CameraSource::isOpen() const { return false; }
 bool CameraSource::yoloReady() const { return false; }
+int CameraSource::deviceIndex() const { return impl_ ? impl_->device_index_ : 0; }
+std::vector<CameraDeviceInfo> CameraSource::listDevices(int) { return {}; }
 bool CameraSource::reportedVisible() const { return false; }
 bool CameraSource::pollPhoneVisible(bool& out_visible) {
   out_visible = false;

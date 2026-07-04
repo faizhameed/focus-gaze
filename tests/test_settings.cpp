@@ -22,6 +22,8 @@ TEST_CASE("Settings defaults include social blocklist and phone thresholds", "[s
   REQUIRE(s.privacy_redact == false);
   REQUIRE(s.alarm_sound == "default");
   REQUIRE(s.bridge_port == 18765);
+  REQUIRE(s.camera_monitoring_enabled == false);
+  REQUIRE(s.camera_device_index == 0);
 }
 
 TEST_CASE("Settings JSON round-trip preserves fields", "[settings]") {
@@ -33,6 +35,8 @@ TEST_CASE("Settings JSON round-trip preserves fields", "[settings]") {
   s.alarm_sound = "chime.wav";
   s.privacy_redact = true;
   s.resume_focus_on_launch = true;
+  s.camera_monitoring_enabled = true;
+  s.camera_device_index = 2;
   s.bridge_port = 19000;
   s.bridge_token = "secret-token";
 
@@ -46,6 +50,8 @@ TEST_CASE("Settings JSON round-trip preserves fields", "[settings]") {
   REQUIRE(loaded.alarm_sound == "chime.wav");
   REQUIRE(loaded.privacy_redact == true);
   REQUIRE(loaded.resume_focus_on_launch == true);
+  REQUIRE(loaded.camera_monitoring_enabled == true);
+  REQUIRE(loaded.camera_device_index == 2);
   REQUIRE(loaded.bridge_port == 19000);
   REQUIRE(loaded.bridge_token == "secret-token");
 }
@@ -57,6 +63,8 @@ TEST_CASE("Settings rejects invalid JSON and invalid values", "[settings]") {
   REQUIRE_FALSE(s.fromJsonString(R"({"phone_threshold_seconds": -1})"));
   REQUIRE_FALSE(s.fromJsonString(R"({"phone_window_seconds": 0})"));
   REQUIRE_FALSE(s.fromJsonString(R"({"bridge_port": 70000})"));
+  REQUIRE_FALSE(s.fromJsonString(R"({"camera_device_index": -1})"));
+  REQUIRE_FALSE(s.fromJsonString(R"({"camera_device_index": 99})"));
 }
 
 TEST_CASE("Settings save and load from file", "[settings]") {

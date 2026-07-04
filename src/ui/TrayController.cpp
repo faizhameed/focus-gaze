@@ -1,7 +1,6 @@
 #include "ui/TrayController.hpp"
 
 #include "core/PlatformPaths.hpp"
-#include "ui/ChromeExtensionInstaller.hpp"
 
 #include <QAction>
 #include <QApplication>
@@ -83,6 +82,7 @@ void TrayController::rebuildMenu() {
   if (!menu_) menu_ = new QMenu();
   menu_->clear();
 
+  if (focus_) focus_->ensureConsistentWithStorage();
   const bool on = focus_ && focus_->isFocusOn();
   menu_->addAction(on ? tr("Turn Focus OFF") : tr("Turn Focus ON"), this,
                    &TrayController::toggleFocus);
@@ -112,11 +112,8 @@ void TrayController::rebuildMenu() {
   menu_->addAction(tr("Last session stats…"), this, &TrayController::showStats);
   menu_->addSeparator();
   menu_->addAction(tr("Get Chrome extension…"), this, &TrayController::openExtensionInstallPage);
-  menu_->addAction(tr("Connect browser (auto pair)…"), this,
-                   &TrayController::connectBrowserExtension);
+  menu_->addAction(tr("Connect browser…"), this, &TrayController::connectBrowserExtension);
   menu_->addAction(tr("Copy bridge token (fallback)"), this, &TrayController::copyBridgeToken);
-  menu_->addAction(tr("Dev: install to all Chrome profiles…"), this,
-                   &TrayController::installChromeExtension);
   menu_->addSeparator();
   menu_->addAction(tr("Quit focusGaze"), this, &TrayController::quitApp);
   tray_->setContextMenu(menu_);
@@ -137,10 +134,6 @@ void TrayController::ensureBridge() {
   }
   bridge_ = std::make_unique<HttpBrowserBridge>(*browser_, settings_.bridge_token, settings_.bridge_port,
                                                 phone_.get(), vision_.get(), focus_.get());
-  // One-click install from the extension popup (POST /v1/install-extension).
-  bridge_->setInstallHandler([](bool relaunch) {
-    return installChromeExtensionAllProfilesJson(relaunch);
-  });
   bridge_->setCameraStatusProvider([this]() { return settings_.camera_monitoring_enabled; });
   bridge_ok_ = bridge_->start();
   if (vision_) vision_->start();
@@ -155,16 +148,31 @@ void TrayController::stopBridge() {
   bridge_ok_ = false;
 }
 
-void TrayController::ensureCamera() {
+bool TrayController::ensureCamera() {
 #if defined(FOCUSGAZE_HAS_OPENCV)
-  if (!settings_.camera_monitoring_enabled) return;
-  if (camera_ && camera_->isOpen()) return;
-  camera_ = std::make_unique<CameraSource>(CameraSource::resolveVideoPathFromEnv(), 15);
-  if (!camera_->isOpen() && tray_) {
-    tray_->showMessage("focusGaze",
-                       "Camera failed to open. Check Privacy → Camera → focusGaze.",
-                       QSystemTrayIcon::Warning, 6000);
+  if (!settings_.camera_monitoring_enabled) return false;
+  // Re-open if device index changed or previous open failed.
+  if (camera_ && camera_->isOpen() && camera_->deviceIndex() == settings_.camera_device_index) {
+    return true;
   }
+  camera_.reset();
+  camera_ = std::make_unique<CameraSource>(settings_.camera_device_index,
+                                           CameraSource::resolveVideoPathFromEnv(), 15);
+  if (!camera_->isOpen()) {
+    if (tray_) {
+      tray_->showMessage(
+          "focusGaze",
+          QString("Camera index %1 failed (denied or unavailable). "
+                  "Pick another device in the dashboard, or allow access in "
+                  "System Settings → Privacy & Security → Camera.")
+              .arg(settings_.camera_device_index),
+          QSystemTrayIcon::Warning, 8000);
+    }
+    return false;
+  }
+  return true;
+#else
+  return false;
 #endif
 }
 
@@ -176,12 +184,13 @@ void TrayController::releaseCamera() {
 void TrayController::setCameraMonitoring(bool enabled) {
   if (settings_.camera_monitoring_enabled == enabled) {
     rebuildMenu();
+    refreshDashboard();
     return;
   }
-  settings_.camera_monitoring_enabled = enabled;
-  saveSettings(settings_);
 
   if (!enabled) {
+    settings_.camera_monitoring_enabled = false;
+    saveSettings(settings_);
     releaseCamera();
     camera_preview_wanted_ = false;
     if (camera_window_) camera_window_->hide();
@@ -190,20 +199,72 @@ void TrayController::setCameraMonitoring(bool enabled) {
                          "Camera monitoring OFF. Focus still watches the browser only.",
                          QSystemTrayIcon::Information, 3000);
     }
-  } else {
-    // Do NOT open preview automatically — run headless while Focus is on.
-    camera_preview_wanted_ = false;
-    if (focus_ && focus_->isFocusOn()) {
-      ensureCamera();
-    }
+    rebuildMenu();
+    updateTrayTooltip();
+    refreshDashboard();
+    return;
+  }
+
+  // Turning ON: require a working camera first. If denied (e.g. Continuity/iPhone),
+  // do not leave monitoring stuck enabled.
+  settings_.camera_monitoring_enabled = true;
+  camera_preview_wanted_ = false;
+  const bool opened = ensureCamera();
+  if (!opened) {
+    settings_.camera_monitoring_enabled = false;
+    saveSettings(settings_);
+    releaseCamera();
     if (tray_) {
+      tray_->showMessage(
+          "focusGaze",
+          "Camera monitoring was not enabled — no frames from the selected camera. "
+          "Choose another camera on Overview, or grant permission.",
+          QSystemTrayIcon::Warning, 8000);
+    }
+    rebuildMenu();
+    updateTrayTooltip();
+    refreshDashboard();
+    return;
+  }
+
+  saveSettings(settings_);
+  if (tray_) {
+    tray_->showMessage("focusGaze",
+                       QString("Camera monitoring ON (device %1). Use “Show camera preview” for live view.")
+                           .arg(settings_.camera_device_index),
+                       QSystemTrayIcon::Information, 4000);
+  }
+  rebuildMenu();
+  updateTrayTooltip();
+  refreshDashboard();
+}
+
+void TrayController::setCameraDeviceIndex(int index) {
+  if (index < 0) index = 0;
+  if (settings_.camera_device_index == index) return;
+  settings_.camera_device_index = index;
+  saveSettings(settings_);
+  // Force reopen on next ensure / immediately if monitoring is on.
+  releaseCamera();
+  if (settings_.camera_monitoring_enabled) {
+    if (!ensureCamera()) {
+      // Selected device unusable — turn monitoring off so UI matches reality.
+      settings_.camera_monitoring_enabled = false;
+      saveSettings(settings_);
+      if (tray_) {
+        tray_->showMessage("focusGaze",
+                           "Selected camera failed; camera monitoring turned OFF.",
+                           QSystemTrayIcon::Warning, 6000);
+      }
+    } else if (tray_) {
       tray_->showMessage("focusGaze",
-                         "Camera monitoring ON (background). Use “Show camera preview” for the video window.",
-                         QSystemTrayIcon::Information, 4000);
+                         QString("Using camera index %1").arg(index),
+                         QSystemTrayIcon::Information, 2500);
     }
   }
   rebuildMenu();
   updateTrayTooltip();
+  refreshDashboard();
 }
 
 void TrayController::toggleCameraMonitoring() {
@@ -211,12 +272,22 @@ void TrayController::toggleCameraMonitoring() {
 }
 
 void TrayController::toggleFocus() {
-  if (focus_ && focus_->isFocusOn()) turnFocusOff();
+  if (!focus_) return;
+  // Keep memory and DB aligned before deciding on/off (fixes stuck "Turn Focus OFF").
+  focus_->ensureConsistentWithStorage();
+  if (focus_->isFocusOn()) turnFocusOff();
   else turnFocusOn();
 }
 
 void TrayController::turnFocusOn() {
   if (!focus_) return;
+  focus_->ensureConsistentWithStorage();
+  if (focus_->isFocusOn()) {
+    rebuildMenu();
+    updateTrayTooltip();
+    refreshDashboard();
+    return;
+  }
   if (focus_->turnOn()) {
     QString msg = "Focus ON (browser)";
     if (settings_.camera_monitoring_enabled) {
@@ -224,32 +295,45 @@ void TrayController::turnFocusOn() {
       ensureCamera();
       // Do not force-open preview window.
     }
-    tray_->showMessage("focusGaze", msg, QSystemTrayIcon::Information, 3000);
+    if (tray_) {
+      tray_->showMessage("focusGaze", msg, QSystemTrayIcon::Information, 3000);
+    }
   }
   rebuildMenu();
   updateTrayTooltip();
+  refreshDashboard();
 }
 
 void TrayController::turnFocusOff() {
   if (!focus_ || !storage_) return;
+  focus_->ensureConsistentWithStorage();
   std::optional<std::int64_t> sid;
   if (auto s = focus_->activeSession()) sid = s->id;
-  if (focus_->turnOff()) {
-    browser_->onFocusTurnedOff();
-    phone_->onFocusTurnedOff();
-    // Stop using camera for policy; keep device only if preview still open.
-    if (!(camera_window_ && camera_window_->isVisible())) {
-      releaseCamera();
-    }
+
+  // Always attempt turnOff — clears DB open sessions even if memory was stale.
+  const bool changed = focus_->turnOff();
+  if (browser_) browser_->onFocusTurnedOff();
+  if (phone_) phone_->onFocusTurnedOff();
+  // Stop using camera for policy; keep device only if preview still open.
+  if (!(camera_window_ && camera_window_->isVisible())) {
+    releaseCamera();
+  }
+
+  if (changed && tray_) {
     QString msg = "Focus OFF";
     if (sid) {
-      ProductivityStats stats(*storage_);
-      msg += QString("\nScore: %1 / 100").arg(stats.computeSession(*sid).score, 0, 'f', 1);
+      try {
+        ProductivityStats stats(*storage_);
+        msg += QString("\nScore: %1 / 100").arg(stats.computeSession(*sid).score, 0, 'f', 1);
+      } catch (...) {
+        // Never block turning focus off because of stats/reporting failures.
+      }
     }
     tray_->showMessage("focusGaze", msg, QSystemTrayIcon::Information, 5000);
   }
   rebuildMenu();
   updateTrayTooltip();
+  refreshDashboard();
 }
 
 void TrayController::showCameraPreview(bool show) {
@@ -301,23 +385,39 @@ void TrayController::toggleCameraPreview() {
   showCameraPreview(show);
 }
 
-void TrayController::showStats() {
-  if (!storage_) return;
-  ProductivityStats stats(*storage_);
-  auto s = stats.lastSessionSummary();
-  if (!s) {
-    QMessageBox::information(nullptr, "focusGaze stats", "No sessions yet.");
-    return;
-  }
-  QMessageBox::information(nullptr, "focusGaze stats",
-                           QString::fromStdString(ProductivityStats::formatReport(*s)));
+QString TrayController::cameraDeviceLabel() const {
+  return tr("Camera index %1").arg(settings_.camera_device_index);
 }
 
-void TrayController::showStatusMessage() {
+void TrayController::populateCameraDevices() {
+  if (!dashboard_) return;
+  std::vector<std::pair<int, QString>> devices;
+#if defined(FOCUSGAZE_HAS_OPENCV)
+  for (const auto& d : CameraSource::listDevices(6)) {
+    devices.emplace_back(d.index, QString::fromStdString(d.name));
+  }
+#endif
+  // Always include the configured index even if probe failed (so user can re-try).
+  bool has_sel = false;
+  for (const auto& d : devices) {
+    if (d.first == settings_.camera_device_index) has_sel = true;
+  }
+  if (!has_sel) {
+    devices.emplace_back(settings_.camera_device_index,
+                         tr("Camera %1 (saved — probe failed / permission denied)")
+                             .arg(settings_.camera_device_index));
+  }
+  dashboard_->setCameraDevices(devices, settings_.camera_device_index);
+}
+
+void TrayController::refreshStatusPage() {
+  if (!dashboard_) return;
   QString body;
+  if (focus_) focus_->ensureConsistentWithStorage();
   body += QString("Focus: %1\n").arg(focus_ && focus_->isFocusOn() ? "ON" : "OFF");
-  body += QString("Camera monitoring: %1 (background)\n")
+  body += QString("Camera monitoring: %1\n")
               .arg(settings_.camera_monitoring_enabled ? "ON" : "OFF");
+  body += QString("Camera device index: %1\n").arg(settings_.camera_device_index);
   body += QString("Preview window: %1\n")
               .arg(camera_window_ && camera_window_->isVisible() ? "open" : "closed");
   body += QString("Bridge: %1 (port %2)\n")
@@ -325,18 +425,68 @@ void TrayController::showStatusMessage() {
               .arg(settings_.bridge_port);
   body += QString("Token: %1\n").arg(QString::fromStdString(settings_.bridge_token));
 #if defined(FOCUSGAZE_HAS_OPENCV)
-  body += QString("Camera device open: %1  YOLO: %2\n")
-              .arg(camera_ && camera_->isOpen() ? "yes" : "no")
-              .arg(camera_ && camera_->yoloReady() ? "yes" : "no");
+  body += QString("Camera device open: %1\n")
+              .arg(camera_ && camera_->isOpen() ? "yes" : "no");
+  body += QString("YOLO: %1\n").arg(camera_ && camera_->yoloReady() ? "yes" : "no");
+#else
+  body += "OpenCV: not built into this binary\n";
 #endif
-  if (phone_ && focus_ && focus_->isFocusOn()) {
+  if (phone_) {
     const auto ph = phone_->status(wallNow());
-    body += QString("Phone in-use: %1  alarm: %2  cumulative: %3s\n")
-                .arg(ph.phone_visible ? "yes" : "no")
-                .arg(ph.phone_alarm ? "on" : "off")
-                .arg(ph.cumulative_visible_seconds);
+    body += QString("Phone in-use: %1\n").arg(ph.phone_visible ? "yes" : "no");
+    body += QString("Phone alarm: %1\n").arg(ph.phone_alarm ? "on" : "off");
+    body += QString("Phone cumulative (window): %1s / threshold %2s\n")
+                .arg(ph.cumulative_visible_seconds)
+                .arg(ph.threshold_seconds);
   }
-  QMessageBox::information(nullptr, "focusGaze status", body);
+  if (browser_) {
+    const auto st = browser_->status();
+    body += QString("Alarm active: %1\n").arg(st.alarm_active ? "yes" : "no");
+    body += QString("Blocked tabs: %1\n").arg(static_cast<qulonglong>(st.blocked_tab_count));
+    if (!st.last_domain.empty()) {
+      body += QString("Last domain: %1 (%2)\n")
+                  .arg(QString::fromStdString(st.last_domain),
+                       QString::fromStdString(st.last_category));
+    }
+  }
+  dashboard_->setStatusDetail(body);
+}
+
+void TrayController::refreshStatsPage() {
+  if (!dashboard_ || !storage_) return;
+  try {
+    ProductivityStats stats(*storage_);
+    auto s = stats.lastSessionSummary();
+    if (!s) {
+      dashboard_->setStatsDetail(
+          tr("No sessions yet.\n\nTurn Focus ON to start a session, then Turn Focus OFF "
+             "to end it and see a score here."));
+      return;
+    }
+    dashboard_->setStatsDetail(QString::fromStdString(ProductivityStats::formatReport(*s)));
+  } catch (const std::exception& ex) {
+    dashboard_->setStatsDetail(tr("Failed to load session stats:\n%1").arg(ex.what()));
+  } catch (...) {
+    dashboard_->setStatsDetail(tr("Failed to load session stats (unknown error)."));
+  }
+}
+
+void TrayController::showStats() {
+  ensureDashboard();
+  refreshStatsPage();
+  dashboard_->showPage(DashboardWindow::Page::Stats);
+  dashboard_->show();
+  dashboard_->raise();
+  dashboard_->activateWindow();
+}
+
+void TrayController::showStatusMessage() {
+  ensureDashboard();
+  refreshStatusPage();
+  dashboard_->showPage(DashboardWindow::Page::Status);
+  dashboard_->show();
+  dashboard_->raise();
+  dashboard_->activateWindow();
 }
 
 void TrayController::copyBridgeToken() {
@@ -414,31 +564,39 @@ void TrayController::connectBrowserExtension() {
   }
 }
 
+void TrayController::ensureDashboard() {
+  if (dashboard_) return;
+  dashboard_ = new DashboardWindow();
+  connect(dashboard_, &DashboardWindow::focusToggled, this, [this](bool on) {
+    if (on) turnFocusOn();
+    else turnFocusOff();
+    refreshDashboard();
+  });
+  connect(dashboard_, &DashboardWindow::cameraToggled, this, [this](bool on) {
+    setCameraMonitoring(on);
+    refreshDashboard();
+  });
+  connect(dashboard_, &DashboardWindow::cameraDeviceChanged, this,
+          &TrayController::setCameraDeviceIndex);
+  connect(dashboard_, &DashboardWindow::showCameraPreviewRequested, this, [this]() {
+    showCameraPreview(true);
+  });
+  connect(dashboard_, &DashboardWindow::copyTokenRequested, this, &TrayController::copyBridgeToken);
+  connect(dashboard_, &DashboardWindow::connectBrowserRequested, this,
+          &TrayController::connectBrowserExtension);
+  connect(dashboard_, &DashboardWindow::openExtensionStoreRequested, this,
+          &TrayController::openExtensionInstallPage);
+  connect(dashboard_, &DashboardWindow::refreshStatsRequested, this, [this]() {
+    refreshStatsPage();
+  });
+  populateCameraDevices();
+}
+
 void TrayController::showDashboard() {
-  if (!dashboard_) {
-    dashboard_ = new DashboardWindow();
-    connect(dashboard_, &DashboardWindow::focusToggled, this, [this](bool on) {
-      if (on) turnFocusOn();
-      else turnFocusOff();
-      refreshDashboard();
-    });
-    connect(dashboard_, &DashboardWindow::cameraToggled, this, [this](bool on) {
-      setCameraMonitoring(on);
-      refreshDashboard();
-    });
-    connect(dashboard_, &DashboardWindow::showCameraPreviewRequested, this, [this]() {
-      showCameraPreview(true);
-    });
-    connect(dashboard_, &DashboardWindow::copyTokenRequested, this, &TrayController::copyBridgeToken);
-    connect(dashboard_, &DashboardWindow::connectBrowserRequested, this,
-            &TrayController::connectBrowserExtension);
-    connect(dashboard_, &DashboardWindow::openExtensionStoreRequested, this,
-            &TrayController::openExtensionInstallPage);
-    connect(dashboard_, &DashboardWindow::installExtensionRequested, this,
-            &TrayController::installChromeExtension);
-    connect(dashboard_, &DashboardWindow::showStatsRequested, this, &TrayController::showStats);
-  }
+  ensureDashboard();
   refreshDashboard();
+  refreshStatusPage();
+  dashboard_->showPage(DashboardWindow::Page::Overview);
   dashboard_->show();
   dashboard_->raise();
   dashboard_->activateWindow();
@@ -464,44 +622,23 @@ void TrayController::refreshDashboard() {
   }
   QString session_line = tr("No sessions yet.");
   if (storage_) {
-    ProductivityStats stats(*storage_);
-    if (auto s = stats.lastSessionSummary()) {
-      session_line = QString::fromStdString(ProductivityStats::formatReport(*s));
+    try {
+      ProductivityStats stats(*storage_);
+      if (auto s = stats.lastSessionSummary()) {
+        session_line =
+            tr("Score %1 / 100 · focus %2 min")
+                .arg(s->score, 0, 'f', 1)
+                .arg(s->focus_seconds / 60.0, 0, 'f', 1);
+      }
+    } catch (...) {
+      session_line = tr("Could not load last session.");
     }
   }
   dashboard_->setStatus(focus_ && focus_->isFocusOn(), bridge_ok_, settings_.bridge_port,
                         settings_.camera_monitoring_enabled, phone_vis, alarm, alarm_text,
-                        session_line);
-}
-
-void TrayController::installChromeExtension() {
-  const auto reply = QMessageBox::question(
-      dashboard_ ? static_cast<QWidget*>(dashboard_) : nullptr, tr("Install Chrome extension"),
-      tr("Install focusGaze Bridge into every Chrome profile on this Mac?\n\n"
-         "Chrome will quit and relaunch so the extension loads everywhere "
-         "(Default, Work, Personal, …)."),
-      QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-  if (reply != QMessageBox::Yes) return;
-
-  tray_->showMessage("focusGaze", "Installing Chrome extension for all profiles…",
-                     QSystemTrayIcon::Information, 4000);
-  const auto result = installChromeExtensionAllProfiles(true);
-  if (result.ok) {
-    QString detail = result.message;
-    if (!result.profiles.empty()) {
-      detail += "\n\nProfiles: ";
-      for (int i = 0; i < static_cast<int>(result.profiles.size()); ++i) {
-        if (i) detail += ", ";
-        detail += result.profiles[static_cast<size_t>(i)];
-      }
-    }
-    QMessageBox::information(dashboard_, tr("Chrome extension installed"), detail);
-    tray_->showMessage("focusGaze", "Chrome extension installed for all profiles.",
-                       QSystemTrayIcon::Information, 5000);
-  } else {
-    QMessageBox::warning(dashboard_, tr("Install failed"), result.message);
-    tray_->showMessage("focusGaze", result.message, QSystemTrayIcon::Warning, 8000);
-  }
+                        session_line, settings_.camera_device_index, cameraDeviceLabel());
+  // Keep status page fresh if open.
+  refreshStatusPage();
 }
 
 void TrayController::quitApp() {
@@ -519,8 +656,18 @@ void TrayController::onTick() {
   // Background phone detection: camera monitoring ON + Focus ON — no preview required.
   if (settings_.camera_monitoring_enabled && focus_ && focus_->isFocusOn()) {
 #if defined(FOCUSGAZE_HAS_OPENCV)
-    ensureCamera();
-    if (camera_ && camera_->isOpen()) {
+    if (!ensureCamera()) {
+      // Device lost / permission revoked mid-session — disable monitoring to match reality.
+      settings_.camera_monitoring_enabled = false;
+      saveSettings(settings_);
+      releaseCamera();
+      if (tray_) {
+        tray_->showMessage("focusGaze",
+                           "Camera lost or denied — camera monitoring turned OFF.",
+                           QSystemTrayIcon::Warning, 5000);
+      }
+      rebuildMenu();
+    } else if (camera_ && camera_->isOpen()) {
       bool vis = false;
       if (camera_->pollPhoneVisible(vis)) {
         phone_->sample(wallNow(), vis);

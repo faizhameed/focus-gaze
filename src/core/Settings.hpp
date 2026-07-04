@@ -35,6 +35,9 @@ struct Settings {
   /// When false, Focus Mode still monitors browser URLs but does not use the camera / phone vision.
   bool camera_monitoring_enabled{false};
 
+  /// OpenCV/AVFoundation capture device index (0 = first camera). Avoids Continuity/iPhone surprise.
+  int camera_device_index{0};
+
   /// Local HTTP bridge port for the browser extension (Phase 2).
   int bridge_port{18765};
 

@@ -22,9 +22,6 @@ namespace focusgaze {
 /// automatically via a loopback HTML page + chrome.runtime.sendMessage.
 class HttpBrowserBridge {
 public:
-  /// Optional install hook: invoked by POST /v1/install-extension.
-  using InstallHandler = std::function<std::string(bool relaunch_chrome)>;
-
   /// Optional camera status provider for GET /v1/status.
   using CameraStatusProvider = std::function<bool()>;
 
@@ -41,9 +38,6 @@ public:
   bool isRunning() const { return running_.load(); }
   int port() const { return port_; }
   const std::string& token() const { return token_; }
-
-  /// Register the multi-profile Chrome installer (desktop app sets this).
-  void setInstallHandler(InstallHandler handler) { install_handler_ = std::move(handler); }
 
   /// Optional: report whether camera monitoring is enabled.
   void setCameraStatusProvider(CameraStatusProvider provider) {
@@ -73,16 +67,13 @@ private:
     bool consumed{false};
   };
 
-  /// Mint a new one-time code bound to the current bridge token (caller holds no lock).
   std::string mintPairCodeLocked();
-  /// Validate code; if ok, mark consumed and return true. Token/port read from members.
   bool consumePairCode(const std::string& code);
 
   BrowserMonitor& monitor_;
   PhoneMonitor* phone_{nullptr};
   VisionLoop* vision_{nullptr};
   FocusSessionManager* focus_{nullptr};
-  InstallHandler install_handler_;
   CameraStatusProvider camera_status_provider_;
   std::string token_;
   int port_;

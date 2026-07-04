@@ -350,61 +350,24 @@ bool HttpBrowserBridge::start() {
       res.set_content(R"({"error":"missing_on_bool"})", "application/json");
       return;
     }
+    focus_->ensureConsistentWithStorage();
     const bool want_on = body["on"].get<bool>();
     const bool was_on = focus_->isFocusOn();
     if (want_on && !was_on) {
       focus_->turnOn();
       logLine("focus turned ON via /v1/focus");
-    } else if (!want_on && was_on) {
-      focus_->turnOff();
-      monitor_.onFocusTurnedOff();
-      if (phone_) phone_->onFocusTurnedOff();
-      logLine("focus turned OFF via /v1/focus");
+    } else if (!want_on) {
+      // Always force off (clears DB open sessions even if memory was stale).
+      if (focus_->turnOff() || was_on) {
+        monitor_.onFocusTurnedOff();
+        if (phone_) phone_->onFocusTurnedOff();
+        logLine("focus turned OFF via /v1/focus");
+      }
     }
     json out;
     out["focus_on"] = focus_->isFocusOn();
     out["accepted"] = true;
     res.set_content(out.dump(), "application/json");
-  });
-
-  // One-click install of the Chrome extension into every profile (authenticated).
-  server->Post("/v1/install-extension", [this](const httplib::Request& req, httplib::Response& res) {
-    if (!authorized(req, token_)) {
-      res.status = 401;
-      res.set_content(R"({"error":"unauthorized"})", "application/json");
-      return;
-    }
-    if (!install_handler_) {
-      res.status = 503;
-      res.set_content(
-          R"({"ok":false,"error":"install_unavailable","message":"Installer not configured in this process"})",
-          "application/json");
-      return;
-    }
-    bool relaunch = true;
-    if (!req.body.empty()) {
-      try {
-        const auto body = json::parse(req.body);
-        if (body.contains("relaunch_chrome") && body["relaunch_chrome"].is_boolean()) {
-          relaunch = body["relaunch_chrome"].get<bool>();
-        }
-      } catch (const json::parse_error&) {
-        // keep default relaunch=true
-      }
-    }
-    logLine("POST /v1/install-extension relaunch=" + std::string(relaunch ? "true" : "false"));
-    try {
-      const std::string payload = install_handler_(relaunch);
-      res.set_content(payload.empty() ? R"({"ok":false,"error":"empty_installer_result"})" : payload,
-                      "application/json");
-    } catch (const std::exception& ex) {
-      json err;
-      err["ok"] = false;
-      err["error"] = "install_failed";
-      err["message"] = ex.what();
-      res.status = 500;
-      res.set_content(err.dump(), "application/json");
-    }
   });
 
   // --- Automatic extension pairing (loopback only; server binds 127.0.0.1) ---

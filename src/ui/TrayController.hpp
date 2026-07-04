@@ -47,12 +47,12 @@ public slots:
   void showStatusMessage();
   void showDashboard();
   void copyBridgeToken();
-  /// Open Chrome Web Store / install page for the extension (production entry).
+  /// Open Chrome Web Store / install help for the extension.
   void openExtensionInstallPage();
   /// Open a one-time pair URL in Google Chrome so the extension receives the token.
   void connectBrowserExtension();
-  /// One-click install of the Chrome extension into every Chrome profile (dev).
-  void installChromeExtension();
+  /// User picked a different capture device in the dashboard.
+  void setCameraDeviceIndex(int index);
   void quitApp();
 
 private slots:
@@ -63,10 +63,16 @@ private:
   void updateTrayTooltip();
   void ensureBridge();
   void stopBridge();
-  void ensureCamera();
+  /// Open the configured camera device. Returns true if capture is live.
+  bool ensureCamera();
   void releaseCamera();
   void persistSettings();
+  void ensureDashboard();
   void refreshDashboard();
+  void refreshStatusPage();
+  void refreshStatsPage();
+  void populateCameraDevices();
+  QString cameraDeviceLabel() const;
   static EpochSeconds wallNow();
 
   Settings settings_;

@@ -16,7 +16,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstdio>
 #include <csignal>
 #include <cstdlib>
 #include <fstream>
@@ -251,7 +250,8 @@ int main(int argc, char** argv) {
       bool camera_ok = false;
 #if defined(FOCUSGAZE_HAS_OPENCV)
       // OpenCV capture + GUI must stay on THIS (main) thread on macOS.
-      camera = std::make_unique<focusgaze::CameraSource>(fake, 15);
+      // device index 0 by default; GUI users pick index via dashboard settings.
+      camera = std::make_unique<focusgaze::CameraSource>(0, fake, 15);
       camera_ok = camera->isOpen();
 #endif
 
@@ -265,35 +265,6 @@ int main(int argc, char** argv) {
       focusgaze::HttpBrowserBridge bridge(app.browser, app.settings.bridge_token,
                                           app.settings.bridge_port, &app.phone, &vision,
                                           &app.focus);
-      // CLI: multi-profile install via the same Python installer the GUI uses.
-      bridge.setInstallHandler([](bool relaunch) -> std::string {
-        // Prefer repo-relative path; FOCUSGAZE_ROOT overrides.
-        const char* root = std::getenv("FOCUSGAZE_ROOT");
-        std::string cmd = "python3 ";
-        if (root && root[0] != '\0') {
-          cmd += "\"";
-          cmd += root;
-          cmd += "/scripts/chrome_extension_installer.py\"";
-        } else {
-          cmd += "scripts/chrome_extension_installer.py";
-        }
-        cmd += " --json";
-        if (!relaunch) cmd += " --no-relaunch";
-        cmd += " 2>/dev/null";
-        FILE* pipe = popen(cmd.c_str(), "r");
-        if (!pipe) {
-          return R"({"ok":false,"error":"popen_failed","message":"Could not run installer"})";
-        }
-        std::string out;
-        char buf[512];
-        while (fgets(buf, sizeof(buf), pipe)) out += buf;
-        const int rc = pclose(pipe);
-        if (out.empty()) {
-          return rc == 0 ? R"({"ok":true,"message":"Installed"})"
-                         : R"({"ok":false,"error":"installer_empty","message":"Installer produced no output"})";
-        }
-        return out;
-      });
       if (!bridge.start()) {
         std::cerr << "Failed to start bridge\n";
         return 1;
@@ -308,7 +279,7 @@ int main(int argc, char** argv) {
                 << "camera=" << (camera_ok ? (fake.empty() ? "webcam" : "fake_video") : "off")
                 << "\nyolo=" << (camera && camera->yoloReady() ? "on" : "off") << "\n"
                 << "opencv_ui=main_thread_only (single window)\n"
-                << "POST /v1/url  POST /v1/phone  POST /v1/focus  POST /v1/install-extension\n"
+                << "POST /v1/url  POST /v1/phone  POST /v1/focus\n"
                 << "GET /v1/status  POST /v1/pair/start  GET /v1/pair-ui  GET /v1/install-help\n"
                 << "Ctrl+C to stop\n"
                 << std::flush;

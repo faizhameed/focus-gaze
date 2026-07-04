@@ -31,6 +31,5 @@ Designs were generated with **Google Stitch** (`stitch.withgoogle.com` / `stitch
 - **Chrome extension popup** → `extension/chrome/popup.{html,css,js}` (self-contained CSS; no CDN, MV3-safe)
 - **Desktop dashboard** → `src/ui/DashboardWindow.*` (Qt Widgets, dark theme)
 - **Camera / alarm chrome** → `src/ui/CameraWindow.cpp` styling
-- **One-click multi-profile install** → `scripts/chrome_extension_installer.py` + tray/dashboard/extension buttons
 
 Stitch HTML under `stitch/` is the design reference (often uses Tailwind CDN). Product code reimplements the look with offline-safe assets.

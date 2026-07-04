@@ -108,7 +108,7 @@ if(FOCUSGAZE_BUILD_TESTS)
     tests/test_storage.cpp tests/test_focus_session.cpp tests/test_url_classifier.cpp
     tests/test_alarm_controller.cpp tests/test_browser_monitor.cpp tests/test_http_bridge.cpp
     tests/test_phone_presence.cpp tests/test_phone_monitor.cpp tests/test_productivity_stats.cpp
-    tests/test_yolo_detector.cpp
+    tests/test_yolo_detector.cpp tests/test_camera_source.cpp
   )
   target_link_libraries(focusgaze_tests PRIVATE focusgaze_core Catch2::Catch2WithMain)
   if(APPLE AND FOCUSGAZE_HAS_YOLO)
@@ -138,8 +138,6 @@ if(FOCUSGAZE_BUILD_GUI)
       src/ui/CameraWindow.hpp
       src/ui/DashboardWindow.cpp
       src/ui/DashboardWindow.hpp
-      src/ui/ChromeExtensionInstaller.cpp
-      src/ui/ChromeExtensionInstaller.hpp
     )
     target_link_libraries(focusGaze_gui PRIVATE focusgaze_core Qt6::Widgets)
     target_compile_definitions(focusGaze_gui PRIVATE FOCUSGAZE_GUI=1)

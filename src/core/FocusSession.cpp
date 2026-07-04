@@ -52,19 +52,20 @@ bool FocusSessionManager::turnOn() {
 }
 
 bool FocusSessionManager::turnOff() {
-  if (!active_) {
-    // Ensure DB has no open session.
-    if (auto open = storage_.getActiveSession()) {
-      storage_.endSession(open->id, time_provider_());
-    }
-    return false;
-  }
-  const auto id = active_->id;
-  storage_.endSession(id, time_provider_());
-  active_ = storage_.getSession(id);
-  // After end, treat as off.
+  // Always force Focus OFF in both memory and DB. Previously we returned false when
+  // `active_` was empty even after closing a DB session, which left monitors thinking
+  // focus was still on (they also check getActiveSession()).
+  bool was_on = active_.has_value();
   active_.reset();
-  return true;
+
+  // End every open session (should be at most one; loop is defensive).
+  for (;;) {
+    auto open = storage_.getActiveSession();
+    if (!open) break;
+    was_on = true;
+    storage_.endSession(open->id, time_provider_());
+  }
+  return was_on;
 }
 
 bool FocusSessionManager::toggle() {
@@ -74,6 +75,17 @@ bool FocusSessionManager::toggle() {
     turnOn();
   }
   return isFocusOn();
+}
+
+void FocusSessionManager::ensureConsistentWithStorage() {
+  // Re-adopt or clear so tray/UI never disagree with the DB after crashes or dual clients.
+  if (auto open = storage_.getActiveSession()) {
+    if (!active_ || active_->id != open->id) {
+      active_ = open;
+    }
+  } else if (active_) {
+    active_.reset();
+  }
 }
 
 } // namespace focusgaze

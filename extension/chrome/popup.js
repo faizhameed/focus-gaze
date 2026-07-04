@@ -1,6 +1,6 @@
 /**
- * focusGaze Bridge popup — settings, live bridge status, and multi-profile install.
- * Visual design follows the Stitch-generated focusGaze popup screen.
+ * focusGaze Bridge popup — settings, live bridge status, focus toggle.
+ * Pairing is done from the desktop app (“Connect browser”) — no multi-profile installer.
  */
 
 const DEFAULTS = { port: 18765, token: "", enabled: true };
@@ -91,55 +91,6 @@ document.getElementById("save").addEventListener("click", async () => {
   const enabled = document.getElementById("enabled").checked;
   await chrome.storage.sync.set({ port, token, enabled });
   await refreshStatus(port, token);
-});
-
-/**
- * Ask the running desktop app (authenticated bridge) to install the extension
- * into every Chrome profile via External Extensions + CRX.
- */
-document.getElementById("installAll").addEventListener("click", async () => {
-  const btn = document.getElementById("installAll");
-  const msg = document.getElementById("installMsg");
-  const port = Number(document.getElementById("port").value) || DEFAULTS.port;
-  const token = document.getElementById("token").value.trim();
-  msg.hidden = false;
-  msg.className = "install-msg";
-  if (!token) {
-    msg.classList.add("err");
-    msg.textContent =
-      "Save a bridge token first (desktop tray → Copy bridge token), then try again.";
-    return;
-  }
-  btn.disabled = true;
-  msg.textContent = "Installing to all Chrome profiles… (Chrome may restart)";
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/v1/install-extension`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "X-FocusGaze-Token": token,
-      },
-      body: JSON.stringify({ relaunch_chrome: true }),
-      signal: AbortSignal.timeout(120000),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(body.error || body.message || `HTTP ${res.status}`);
-    }
-    msg.classList.add("ok");
-    const profiles = Array.isArray(body.profiles) ? body.profiles.join(", ") : "";
-    msg.textContent =
-      body.message ||
-      `Installed for all profiles${profiles ? `: ${profiles}` : ""}. Reload Chrome if needed.`;
-  } catch (e) {
-    msg.classList.add("err");
-    msg.textContent =
-      (e && e.message) ||
-      "Install failed. Open focusGaze desktop app and use tray → Install Chrome extension.";
-  } finally {
-    btn.disabled = false;
-  }
 });
 
 /**

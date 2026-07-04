@@ -37,6 +37,9 @@ public:
   /// Re-load active session from DB (e.g. after crash / restart). Does not create one.
   void syncFromStorage();
 
+  /// Align in-memory active session with the open DB session (or clear if none).
+  void ensureConsistentWithStorage();
+
   /// If settings.resume_focus_on_launch and an open session exists, adopt it; else end orphans.
   /// When resume is false, any open session is ended with "now".
   void reconcileOnLaunch();

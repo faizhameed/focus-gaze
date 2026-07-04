@@ -136,3 +136,52 @@ TEST_CASE("multiple focus cycles create multiple session rows", "[focus]") {
   }
   REQUIRE(db.listSessions(10).size() == 3);
 }
+
+TEST_CASE("ensureConsistentWithStorage re-adopts open DB session", "[focus]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  FakeClock clock;
+  FocusSessionManager mgr(db, Settings::defaults(), [&] { return clock(); });
+
+  // Empty manager, open session created outside memory.
+  REQUIRE_FALSE(mgr.isFocusOn());
+  const auto created = db.createSession(500, true);
+  mgr.ensureConsistentWithStorage();
+  REQUIRE(mgr.isFocusOn());
+  REQUIRE(mgr.activeSession()->id == created.id);
+}
+
+TEST_CASE("ensureConsistentWithStorage clears memory when DB session ended", "[focus]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  FakeClock clock;
+  FocusSessionManager mgr(db, Settings::defaults(), [&] { return clock(); });
+
+  REQUIRE(mgr.turnOn());
+  const auto id = mgr.activeSession()->id;
+  // End session only in DB (simulates desync / external end).
+  REQUIRE(db.endSession(id, 2000));
+  REQUIRE(db.getActiveSession().has_value() == false);
+  // Memory still thinks focus is on until we reconcile.
+  REQUIRE(mgr.isFocusOn());
+  mgr.ensureConsistentWithStorage();
+  REQUIRE_FALSE(mgr.isFocusOn());
+}
+
+TEST_CASE("turnOff closes multiple open DB sessions defensively", "[focus]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  FakeClock clock;
+  FocusSessionManager mgr(db, Settings::defaults(), [&] { return clock(); });
+
+  // Two open rows (shouldn't happen in normal use, but turnOff must clear them).
+  db.createSession(10, true);
+  db.createSession(20, true);
+  REQUIRE(db.getActiveSession().has_value());
+  REQUIRE(mgr.turnOff());
+  REQUIRE_FALSE(db.getActiveSession().has_value());
+  REQUIRE_FALSE(mgr.isFocusOn());
+}

@@ -70,7 +70,7 @@ TEST_CASE("HttpBrowserBridge health is public; status requires auth", "[bridge]"
   bridge.stop();
 }
 
-TEST_CASE("HttpBrowserBridge focus toggle and install hook require auth", "[bridge]") {
+TEST_CASE("HttpBrowserBridge focus toggle requires auth and forces off", "[bridge]") {
   ScopedDataRoot scope;
   Storage db(scope.path() / "t.db");
   db.open();
@@ -83,16 +83,6 @@ TEST_CASE("HttpBrowserBridge focus toggle and install hook require auth", "[brid
   FocusSessionManager focus(db, settings, [&] { return clock(); });
   BrowserMonitor mon(db, focus, settings);
   HttpBrowserBridge bridge(mon, settings.bridge_token, port, nullptr, nullptr, &focus);
-  bool install_called = false;
-  bridge.setInstallHandler([&](bool relaunch) {
-    install_called = true;
-    nlohmann::json j;
-    j["ok"] = true;
-    j["message"] = "mock install";
-    j["relaunch"] = relaunch;
-    j["profiles"] = nlohmann::json::array({"Default", "Work"});
-    return j.dump();
-  });
   REQUIRE(bridge.start());
 
   httplib::Client client("127.0.0.1", port);
@@ -114,16 +104,32 @@ TEST_CASE("HttpBrowserBridge focus toggle and install hook require auth", "[brid
   REQUIRE(off);
   REQUIRE(off->status == 200);
   REQUIRE_FALSE(focus.isFocusOn());
+  // DB must not retain an open session after focus off.
+  REQUIRE_FALSE(db.getActiveSession().has_value());
 
-  auto inst = client.Post("/v1/install-extension", headers, "{\"relaunch_chrome\":false}",
-                          "application/json");
-  REQUIRE(inst);
-  REQUIRE(inst->status == 200);
-  REQUIRE(install_called);
-  REQUIRE(inst->body.find("mock install") != std::string::npos);
-  REQUIRE(inst->body.find("Default") != std::string::npos);
+  // Idempotent off still succeeds as accepted.
+  auto off2 = client.Post("/v1/focus", headers, "{\"on\":false}", "application/json");
+  REQUIRE(off2);
+  REQUIRE(off2->status == 200);
+  REQUIRE_FALSE(focus.isFocusOn());
 
   bridge.stop();
+}
+
+TEST_CASE("FocusSessionManager turnOff clears DB-only open sessions", "[focus]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  FakeClock clock;
+  Settings settings = Settings::defaults();
+  FocusSessionManager focus(db, settings, [&] { return clock(); });
+  // Simulate stale memory: open session only in DB.
+  db.createSession(1000, true);
+  focus.syncFromStorage();
+  REQUIRE(focus.isFocusOn());
+  REQUIRE(focus.turnOff());
+  REQUIRE_FALSE(focus.isFocusOn());
+  REQUIRE_FALSE(db.getActiveSession().has_value());
 }
 
 TEST_CASE("HttpBrowserBridge one-time pair issues token once then expires", "[bridge]") {
@@ -183,6 +189,132 @@ TEST_CASE("HttpBrowserBridge one-time pair issues token once then expires", "[br
   REQUIRE(help);
   REQUIRE(help->status == 200);
   REQUIRE(help->body.find("Connect now") != std::string::npos);
+
+  bridge.stop();
+}
+
+TEST_CASE("HttpBrowserBridge pair rejects invalid and missing codes", "[bridge][pair]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  FakeClock clock;
+  Settings settings = Settings::defaults();
+  settings.bridge_token = "pair-tok";
+  const int port = pickPort();
+  settings.bridge_port = port;
+  FocusSessionManager focus(db, settings, [&] { return clock(); });
+  BrowserMonitor mon(db, focus, settings);
+  HttpBrowserBridge bridge(mon, settings.bridge_token, port, nullptr, nullptr, &focus);
+  REQUIRE(bridge.start());
+
+  httplib::Client client("127.0.0.1", port);
+  client.set_connection_timeout(1, 0);
+  client.set_read_timeout(2, 0);
+
+  auto bad = client.Get("/v1/pair/session?code=deadbeef");
+  REQUIRE(bad);
+  REQUIRE(bad->status == 400);
+
+  auto missing = client.Get("/v1/pair/session");
+  REQUIRE(missing);
+  REQUIRE(missing->status == 400);
+
+  auto ui_bad = client.Get("/v1/pair-ui?code=notavalidlivecode0123456789ab");
+  REQUIRE(ui_bad);
+  REQUIRE(ui_bad->status == 400);
+
+  auto ui_empty = client.Get("/v1/pair-ui");
+  REQUIRE(ui_empty);
+  REQUIRE(ui_empty->status == 400);
+
+  // Two distinct pair codes from start / createPairUrl.
+  auto a = client.Post("/v1/pair/start", "", "application/json");
+  auto b_url = bridge.createPairUrl();
+  REQUIRE(a);
+  REQUIRE(a->status == 200);
+  const auto ja = nlohmann::json::parse(a->body);
+  const std::string code_a = ja["code"].get<std::string>();
+  const auto pos = b_url.find("code=");
+  REQUIRE(pos != std::string::npos);
+  const std::string code_b = b_url.substr(pos + 5);
+  REQUIRE(code_a != code_b);
+  REQUIRE(code_a.size() == 32);
+  REQUIRE(code_b.size() == 32);
+
+  bridge.stop();
+}
+
+TEST_CASE("HttpBrowserBridge status includes camera_monitoring from provider", "[bridge]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  FakeClock clock;
+  Settings settings = Settings::defaults();
+  settings.bridge_token = "cam-tok";
+  const int port = pickPort();
+  settings.bridge_port = port;
+  FocusSessionManager focus(db, settings, [&] { return clock(); });
+  BrowserMonitor mon(db, focus, settings);
+  HttpBrowserBridge bridge(mon, settings.bridge_token, port, nullptr, nullptr, &focus);
+  bool cam_flag = true;
+  bridge.setCameraStatusProvider([&]() { return cam_flag; });
+  REQUIRE(bridge.start());
+
+  httplib::Client client("127.0.0.1", port);
+  client.set_connection_timeout(1, 0);
+  client.set_read_timeout(2, 0);
+  httplib::Headers headers{{"Authorization", "Bearer cam-tok"}};
+
+  auto st = client.Get("/v1/status", headers);
+  REQUIRE(st);
+  REQUIRE(st->status == 200);
+  auto j = nlohmann::json::parse(st->body);
+  REQUIRE(j.contains("camera_monitoring"));
+  REQUIRE(j["camera_monitoring"] == true);
+
+  cam_flag = false;
+  auto st2 = client.Get("/v1/status", headers);
+  REQUIRE(st2);
+  REQUIRE(nlohmann::json::parse(st2->body)["camera_monitoring"] == false);
+
+  bridge.stop();
+}
+
+TEST_CASE("HttpBrowserBridge focus off clears browser sticky alarm path", "[bridge][focus]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  FakeClock clock;
+  Settings settings = Settings::defaults();
+  settings.bridge_token = "alarm-tok";
+  settings.blocklist = {"instagram.com"};
+  const int port = pickPort();
+  settings.bridge_port = port;
+  FocusSessionManager focus(db, settings, [&] { return clock(); });
+  BrowserMonitor mon(db, focus, settings);
+  HttpBrowserBridge bridge(mon, settings.bridge_token, port, nullptr, nullptr, &focus);
+  REQUIRE(bridge.start());
+
+  httplib::Client client("127.0.0.1", port);
+  client.set_connection_timeout(1, 0);
+  client.set_read_timeout(2, 0);
+  httplib::Headers headers{{"Authorization", "Bearer alarm-tok"},
+                           {"Content-Type", "application/json"}};
+
+  REQUIRE(client.Post("/v1/focus", headers, "{\"on\":true}", "application/json"));
+  auto url = client.Post(
+      "/v1/url", headers,
+      R"({"url":"https://www.instagram.com/x","tabId":"9","event":"activated","browser":"chrome"})",
+      "application/json");
+  REQUIRE(url);
+  REQUIRE(url->body.find("\"alarm_active\":true") != std::string::npos);
+
+  auto off = client.Post("/v1/focus", headers, "{\"on\":false}", "application/json");
+  REQUIRE(off);
+  REQUIRE(off->body.find("\"focus_on\":false") != std::string::npos);
+  REQUIRE_FALSE(focus.isFocusOn());
+  // Social sticky should be cleared when focus turns off via bridge.
+  REQUIRE_FALSE(mon.status().alarm_active);
 
   bridge.stop();
 }

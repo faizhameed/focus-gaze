@@ -62,3 +62,44 @@ TEST_CASE("ProductivityStats includes phone seconds", "[stats]") {
   const auto s = stats.computeSession(session.id);
   REQUIRE(s.phone_seconds == 30);
 }
+
+TEST_CASE("lastSessionSummary prefers most recently ended session", "[stats]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+
+  const auto older = db.createSession(100, true);
+  db.endSession(older.id, 200);
+  const auto newer = db.createSession(300, true);
+  db.endSession(newer.id, 400);
+
+  ProductivityStats stats(db);
+  auto s = stats.lastSessionSummary();
+  REQUIRE(s.has_value());
+  REQUIRE(s->session_id == newer.id);
+  REQUIRE(s->focus_seconds == 100);
+
+  const auto report = ProductivityStats::formatReport(*s);
+  REQUIRE(report.find("score=") != std::string::npos);
+  REQUIRE(report.find(std::to_string(newer.id)) != std::string::npos);
+}
+
+TEST_CASE("lastSessionSummary falls back to active session when none ended", "[stats]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  const auto active = db.createSession(50, true);
+
+  ProductivityStats stats(db);
+  auto s = stats.lastSessionSummary();
+  REQUIRE(s.has_value());
+  REQUIRE(s->session_id == active.id);
+}
+
+TEST_CASE("lastSessionSummary empty database returns nullopt", "[stats]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  ProductivityStats stats(db);
+  REQUIRE_FALSE(stats.lastSessionSummary().has_value());
+}
