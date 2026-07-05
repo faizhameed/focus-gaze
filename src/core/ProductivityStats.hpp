@@ -43,9 +43,24 @@ public:
   std::optional<SessionStats> lastSessionSummary() const;
   DailyStats computeDay(const std::string& day_yyyy_mm_dd) const;
 
+  /// Up to `limit` most recent sessions (newest first), with computed stats.
+  std::vector<SessionStats> recentSessions(std::size_t limit = 10) const;
+
+  /// Daily aggregates for the last `num_days` calendar days (oldest → newest).
+  std::vector<DailyStats> lastNDays(int num_days = 7) const;
+
+  /// Today's local date as YYYY-MM-DD.
+  static std::string todayLocalYmd();
+  /// Local date for a unix epoch second as YYYY-MM-DD.
+  static std::string dayFromEpochSeconds(EpochSeconds ts);
+
   static double computeScore(const SessionStats& s);
   static std::string toCsv(const SessionStats& s);
+  /// Multi-session CSV (header + rows).
+  static std::string toCsvMany(const std::vector<SessionStats>& sessions);
   static std::string formatReport(const SessionStats& s);
+  /// JSON array of session stats (for export).
+  static std::string toJsonMany(const std::vector<SessionStats>& sessions);
 
 private:
   Storage& storage_;

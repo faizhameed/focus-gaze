@@ -43,6 +43,17 @@ public:
   /// True if domain equals entry or is a subdomain of entry (entry without leading www preference).
   static bool domainMatches(std::string_view domain, std::string_view pattern);
 
+  /**
+   * Normalize a user-entered blocklist/allowlist line into a bare domain.
+   * Accepts "sitename.com", "www.sitename.com", "https://sitename.com/path", "m.sitename.com"
+   * → host without scheme/path/port, lowercased (www. kept only if it is the whole host logic
+   * is handled in domainMatches via stripWww).
+   */
+  static std::string normalizeDomainEntry(std::string_view entry);
+
+  /// Normalize every entry in a list (drops empty / comment-only results).
+  static std::vector<std::string> normalizeDomainList(const std::vector<std::string>& entries);
+
 private:
   Settings settings_;
 };

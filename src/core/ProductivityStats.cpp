@@ -1,6 +1,10 @@
 #include "core/ProductivityStats.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
@@ -11,6 +15,29 @@ namespace {
 std::string dayFromEpoch(EpochSeconds ts) {
   std::time_t t = static_cast<std::time_t>(ts);
   std::tm tm{};
+#if defined(_WIN32)
+  localtime_s(&tm, &t);
+#else
+  localtime_r(&t, &tm);
+#endif
+  std::ostringstream oss;
+  oss << std::put_time(&tm, "%Y-%m-%d");
+  return oss.str();
+}
+
+/// Shift a local calendar day by delta days (can be negative). Input/output YYYY-MM-DD.
+std::string shiftDay(const std::string& ymd, int delta_days) {
+  std::tm tm{};
+  if (std::sscanf(ymd.c_str(), "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) != 3) {
+    return ymd;
+  }
+  tm.tm_year -= 1900;
+  tm.tm_mon -= 1;
+  tm.tm_hour = 12; // midday avoids DST edge issues for day arithmetic
+  tm.tm_isdst = -1;
+  std::time_t t = std::mktime(&tm);
+  if (t == static_cast<std::time_t>(-1)) return ymd;
+  t += static_cast<std::time_t>(delta_days) * 24 * 60 * 60;
 #if defined(_WIN32)
   localtime_s(&tm, &t);
 #else
@@ -53,7 +80,16 @@ SessionStats ProductivityStats::computeSession(std::int64_t session_id) const {
     return out;
   }
   out.started_at = session->started_at;
-  out.ended_at = session->ended_at.value_or(session->started_at);
+  // Open sessions keep recording in the background; treat "now" as the end so live
+  // duration/score stay meaningful while Focus is still ON (UI refresh is optional).
+  if (session->ended_at.has_value()) {
+    out.ended_at = *session->ended_at;
+  } else {
+    const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+    out.ended_at = static_cast<EpochSeconds>(now);
+  }
   if (out.ended_at < out.started_at) {
     out.ended_at = out.started_at;
   }
@@ -103,13 +139,18 @@ SessionStats ProductivityStats::computeSession(std::int64_t session_id) const {
 
 std::optional<SessionStats> ProductivityStats::lastSessionSummary() const {
   const auto sessions = storage_.listSessions(20);
+  // Prefer the open (active) Focus session so live UI bars update while Focus is ON.
+  // Newest-first list: first open session is the current one.
+  for (const auto& s : sessions) {
+    if (!s.ended_at.has_value()) {
+      return computeSession(s.id);
+    }
+  }
+  // Otherwise most recently ended session.
   for (const auto& s : sessions) {
     if (s.ended_at.has_value()) {
       return computeSession(s.id);
     }
-  }
-  if (!sessions.empty()) {
-    return computeSession(sessions.front().id);
   }
   return std::nullopt;
 }
@@ -138,6 +179,38 @@ DailyStats ProductivityStats::computeDay(const std::string& day) const {
   return d;
 }
 
+std::vector<SessionStats> ProductivityStats::recentSessions(std::size_t limit) const {
+  std::vector<SessionStats> out;
+  const auto sessions = storage_.listSessions(limit == 0 ? 1 : limit);
+  out.reserve(sessions.size());
+  for (const auto& s : sessions) {
+    out.push_back(computeSession(s.id));
+  }
+  return out;
+}
+
+std::vector<DailyStats> ProductivityStats::lastNDays(int num_days) const {
+  if (num_days < 1) num_days = 1;
+  if (num_days > 90) num_days = 90;
+  const std::string today = todayLocalYmd();
+  std::vector<DailyStats> out;
+  out.reserve(static_cast<std::size_t>(num_days));
+  for (int i = num_days - 1; i >= 0; --i) {
+    out.push_back(computeDay(shiftDay(today, -i)));
+  }
+  return out;
+}
+
+std::string ProductivityStats::todayLocalYmd() {
+  const auto now = std::chrono::system_clock::now();
+  const auto ts = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+  return dayFromEpoch(static_cast<EpochSeconds>(ts));
+}
+
+std::string ProductivityStats::dayFromEpochSeconds(EpochSeconds ts) {
+  return dayFromEpoch(ts);
+}
+
 std::string ProductivityStats::toCsv(const SessionStats& s) {
   std::ostringstream oss;
   oss << "session_id,started_at,ended_at,focus_seconds,social_seconds,productive_seconds,"
@@ -163,6 +236,44 @@ std::string ProductivityStats::formatReport(const SessionStats& s) {
       << "score=" << std::fixed << std::setprecision(1) << s.score << " / 100\n"
       << "(Higher is more productive: more allowlist time, less social/phone.)\n";
   return oss.str();
+}
+
+std::string ProductivityStats::toCsvMany(const std::vector<SessionStats>& sessions) {
+  if (sessions.empty()) {
+    return "session_id,started_at,ended_at,focus_seconds,social_seconds,productive_seconds,"
+           "neutral_seconds,phone_seconds,url_events,blocked_events,score\n";
+  }
+  std::ostringstream oss;
+  // Header once, then data rows without repeating header from toCsv.
+  oss << "session_id,started_at,ended_at,focus_seconds,social_seconds,productive_seconds,"
+         "neutral_seconds,phone_seconds,url_events,blocked_events,score\n";
+  for (const auto& s : sessions) {
+    oss << s.session_id << "," << s.started_at << "," << s.ended_at << "," << s.focus_seconds
+        << "," << s.social_seconds << "," << s.productive_seconds << "," << s.neutral_seconds
+        << "," << s.phone_seconds << "," << s.url_event_count << "," << s.blocked_event_count
+        << "," << std::fixed << std::setprecision(1) << s.score << "\n";
+  }
+  return oss.str();
+}
+
+std::string ProductivityStats::toJsonMany(const std::vector<SessionStats>& sessions) {
+  nlohmann::json arr = nlohmann::json::array();
+  for (const auto& s : sessions) {
+    nlohmann::json j;
+    j["session_id"] = s.session_id;
+    j["started_at"] = s.started_at;
+    j["ended_at"] = s.ended_at;
+    j["focus_seconds"] = s.focus_seconds;
+    j["social_seconds"] = s.social_seconds;
+    j["productive_seconds"] = s.productive_seconds;
+    j["neutral_seconds"] = s.neutral_seconds;
+    j["phone_seconds"] = s.phone_seconds;
+    j["url_event_count"] = s.url_event_count;
+    j["blocked_event_count"] = s.blocked_event_count;
+    j["score"] = s.score;
+    arr.push_back(std::move(j));
+  }
+  return arr.dump(2);
 }
 
 } // namespace focusgaze

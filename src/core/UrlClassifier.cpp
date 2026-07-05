@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <utility>
 
 namespace focusgaze {
 namespace {
@@ -105,17 +106,72 @@ bool UrlClassifier::domainMatches(std::string_view domain, std::string_view patt
   if (domain.empty() || pattern.empty()) {
     return false;
   }
-  const std::string d = stripWww(domain);
-  const std::string p = stripWww(pattern);
+  // Always compare on normalized forms so www / mobile subdomains line up.
+  const std::string d = stripWww(normalizeDomainEntry(domain));
+  const std::string p = stripWww(normalizeDomainEntry(pattern));
+  if (d.empty() || p.empty()) {
+    return false;
+  }
   if (d == p) {
     return true;
   }
-  // subdomain: foo.instagram.com matches instagram.com
+  // subdomain: foo.instagram.com matches instagram.com (and m., www. already stripped once)
   if (d.size() > p.size() + 1 && d[d.size() - p.size() - 1] == '.' &&
       d.compare(d.size() - p.size(), p.size(), p) == 0) {
     return true;
   }
   return false;
+}
+
+std::string UrlClassifier::normalizeDomainEntry(std::string_view entry) {
+  // Trim whitespace
+  while (!entry.empty() &&
+         std::isspace(static_cast<unsigned char>(entry.front()))) {
+    entry.remove_prefix(1);
+  }
+  while (!entry.empty() &&
+         std::isspace(static_cast<unsigned char>(entry.back()))) {
+    entry.remove_suffix(1);
+  }
+  if (entry.empty() || entry.front() == '#') {
+    return {};
+  }
+  // Strip leading "*." wildcards users sometimes type.
+  if (entry.rfind("*.", 0) == 0) {
+    entry.remove_prefix(2);
+  }
+  std::string host;
+  // Full URL or path-ish input → extract host.
+  if (entry.find("://") != std::string_view::npos || entry.find('/') != std::string_view::npos) {
+    host = extractDomain(entry);
+  } else {
+    host = toLower(entry);
+    // Strip accidental path/query fragments without scheme.
+    const auto slash = host.find('/');
+    if (slash != std::string::npos) host.resize(slash);
+    const auto q = host.find('?');
+    if (q != std::string::npos) host.resize(q);
+    const auto colon = host.find(':');
+    if (colon != std::string::npos) host.resize(colon);
+  }
+  // Drop trailing dots (DNS form "example.com.").
+  while (!host.empty() && host.back() == '.') host.pop_back();
+  // Prefer canonical bare domain for storage (no www.).
+  return stripWww(host);
+}
+
+std::vector<std::string> UrlClassifier::normalizeDomainList(const std::vector<std::string>& entries) {
+  std::vector<std::string> out;
+  out.reserve(entries.size());
+  for (const auto& e : entries) {
+    auto n = normalizeDomainEntry(e);
+    if (n.empty()) continue;
+    // De-dupe while preserving order.
+    if (std::find(out.begin(), out.end(), n) == out.end()) {
+      out.push_back(std::move(n));
+    }
+  }
+  return out;
 }
 
 UrlCategory UrlClassifier::classifyDomain(std::string_view domain) const {

@@ -19,8 +19,36 @@ TEST_CASE("domainMatches supports subdomains and www", "[classifier]") {
   REQUIRE(UrlClassifier::domainMatches("www.instagram.com", "instagram.com"));
   REQUIRE(UrlClassifier::domainMatches("m.instagram.com", "instagram.com"));
   REQUIRE(UrlClassifier::domainMatches("instagram.com", "www.instagram.com"));
+  REQUIRE(UrlClassifier::domainMatches("https://www.instagram.com/reel/1", "instagram.com"));
   REQUIRE_FALSE(UrlClassifier::domainMatches("notinstagram.com", "instagram.com"));
   REQUIRE_FALSE(UrlClassifier::domainMatches("instagram.com.evil.com", "instagram.com"));
+}
+
+TEST_CASE("normalizeDomainEntry accepts bare domains and full URLs", "[classifier]") {
+  REQUIRE(UrlClassifier::normalizeDomainEntry("sitename.com") == "sitename.com");
+  REQUIRE(UrlClassifier::normalizeDomainEntry("www.sitename.com") == "sitename.com");
+  REQUIRE(UrlClassifier::normalizeDomainEntry("https://www.sitename.com/path?q=1") == "sitename.com");
+  REQUIRE(UrlClassifier::normalizeDomainEntry("*.sitename.com") == "sitename.com");
+  REQUIRE(UrlClassifier::normalizeDomainEntry("  Reddit.COM  ") == "reddit.com");
+  REQUIRE(UrlClassifier::normalizeDomainEntry("# comment") == "");
+  REQUIRE(UrlClassifier::normalizeDomainEntry("") == "");
+
+  const auto list = UrlClassifier::normalizeDomainList(
+      {"www.foo.com", "https://foo.com/x", "foo.com", "bar.com", "#x", ""});
+  REQUIRE(list.size() == 2);
+  REQUIRE(list[0] == "foo.com");
+  REQUIRE(list[1] == "bar.com");
+}
+
+TEST_CASE("blocklist sitename.com blocks www and mobile variants", "[classifier]") {
+  Settings s = Settings::defaults();
+  s.blocklist = UrlClassifier::normalizeDomainList({"sitename.com"});
+  UrlClassifier c(s);
+  REQUIRE(c.classifyUrl("https://sitename.com/") == UrlCategory::Blocked);
+  REQUIRE(c.classifyUrl("https://www.sitename.com/home") == UrlCategory::Blocked);
+  REQUIRE(c.classifyUrl("https://m.sitename.com/") == UrlCategory::Blocked);
+  REQUIRE(c.classifyUrl("https://app.sitename.com/v1") == UrlCategory::Blocked);
+  REQUIRE(c.classifyUrl("https://notsitename.com/") == UrlCategory::Neutral);
 }
 
 TEST_CASE("classifyUrl blocklist and allowlist precedence", "[classifier]") {

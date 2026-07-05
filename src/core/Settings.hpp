@@ -17,14 +17,17 @@ struct Settings {
   std::vector<std::string> allowlist{};
 
   /// Cumulative phone-visible seconds that trigger alarm inside the rolling window.
-  /// Temporarily 5s for easier mobile-detection validation (raise later for production).
-  std::int64_t phone_threshold_seconds{5};
+  /// Product default: 60s in a 30-minute window (IMPLEMENTATION.md policy).
+  std::int64_t phone_threshold_seconds{60};
 
   /// Rolling window length for phone accumulation (seconds).
   std::int64_t phone_window_seconds{30 * 60};
 
-  /// Relative name or absolute path of alarm sound asset.
+  /// Named system sound (default, sosumi, glass, funk, …) or absolute path to audio file.
   std::string alarm_sound{"default"};
+
+  /// When false, sticky alarms still raise visually but no audio plays.
+  bool alarm_sound_enabled{true};
 
   /// When true, strip query strings (and prefer domain) when logging URLs.
   bool privacy_redact{false};
@@ -43,6 +46,9 @@ struct Settings {
 
   /// Shared secret for extension authentication (Phase 2; empty = generate on first save later).
   std::string bridge_token{};
+
+  /// When false, show first-run onboarding wizard on next GUI launch.
+  bool onboarding_completed{false};
 
   static Settings defaults();
 

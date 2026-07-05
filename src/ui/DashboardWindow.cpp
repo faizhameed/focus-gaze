@@ -1,16 +1,27 @@
 #include "ui/DashboardWindow.hpp"
 
+#include "core/ProductivityStats.hpp"
+#include "core/UrlClassifier.hpp"
+
+#include <algorithm>
+
+#include <QAbstractItemView>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QStackedWidget>
 #include <QStyle>
+#include <QTableWidget>
 #include <QVBoxLayout>
 
 namespace focusgaze {
@@ -18,99 +29,68 @@ namespace {
 
 const char* kAppStyle = R"(
   QWidget#DashboardRoot {
-    background: #0B0F14;
-    color: #F1F5F9;
+    background: #0B0F14; color: #F1F5F9;
     font-family: Inter, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   }
-  QLabel#Title {
-    color: #2DD4BF;
-    font-size: 20px;
-    font-weight: 700;
-  }
-  QLabel#Subtitle {
-    color: #94A3B8;
-    font-size: 12px;
-  }
+  QLabel#Title { color: #2DD4BF; font-size: 20px; font-weight: 700; }
+  QLabel#Subtitle { color: #94A3B8; font-size: 12px; }
+  QLabel#MetricBig { color: #2DD4BF; font-size: 36px; font-weight: 800; }
+  QLabel#MetricLabel { color: #94A3B8; font-size: 11px; font-weight: 600; }
   QFrame#Card {
-    background: #141A22;
-    border: 1px solid #243041;
-    border-radius: 12px;
+    background: #141A22; border: 1px solid #243041; border-radius: 12px;
   }
-  QLabel#CardTitle {
-    color: #94A3B8;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-  }
-  QLabel#CardValue {
-    color: #F1F5F9;
-    font-size: 14px;
-    font-weight: 600;
+  QLabel#CardTitle { color: #94A3B8; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
+  QLabel#CardValue { color: #F1F5F9; font-size: 14px; font-weight: 600; }
+  QPushButton {
+    cursor: pointer;
   }
   QPushButton#Primary {
-    background: #2DD4BF;
-    color: #04352F;
-    border: none;
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-weight: 700;
+    background: #2DD4BF; color: #04352F; border: none; border-radius: 8px;
+    padding: 10px 14px; font-weight: 700;
   }
   QPushButton#Primary:hover { background: #5EEAD4; }
+  QPushButton#Primary:pressed { background: #14B8A6; padding-top: 11px; padding-bottom: 9px; }
   QPushButton#Secondary {
-    background: transparent;
-    color: #CBD5E1;
-    border: 1px solid #243041;
-    border-radius: 8px;
-    padding: 9px 12px;
-    font-weight: 600;
+    background: transparent; color: #CBD5E1; border: 1px solid #243041;
+    border-radius: 8px; padding: 9px 12px; font-weight: 600;
   }
-  QPushButton#Secondary:hover {
-    background: rgba(47, 54, 52, 0.35);
-  }
+  QPushButton#Secondary:hover { background: rgba(45, 212, 191, 0.12); border-color: #2DD4BF; color: #F1F5F9; }
+  QPushButton#Secondary:pressed { background: rgba(45, 212, 191, 0.22); padding-top: 10px; padding-bottom: 8px; }
   QPushButton#Nav {
-    background: transparent;
-    color: #94A3B8;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-weight: 600;
-    text-align: left;
+    background: transparent; color: #94A3B8; border: 1px solid transparent;
+    border-radius: 8px; padding: 8px 12px; font-weight: 600; text-align: left;
   }
+  QPushButton#Nav:hover { color: #F1F5F9; background: rgba(36, 48, 65, 0.55); }
+  QPushButton#Nav:pressed { background: #243041; }
   QPushButton#Nav[active="true"] {
-    background: #141A22;
-    color: #2DD4BF;
-    border: 1px solid #243041;
+    background: #141A22; color: #2DD4BF; border: 1px solid #243041;
   }
-  QPushButton#FocusBtn[focusOn="true"] {
-    background: #2DD4BF;
-    color: #04352F;
+  QPushButton#FocusBtn[focusOn="true"] { background: #2DD4BF; color: #04352F; border: none; border-radius: 8px; padding: 10px 14px; font-weight: 700; }
+  QPushButton#FocusBtn[focusOn="true"]:hover { background: #5EEAD4; }
+  QPushButton#FocusBtn[focusOn="true"]:pressed { background: #14B8A6; }
+  QPushButton#FocusBtn[focusOn="false"] { background: #243041; color: #F1F5F9; border: none; border-radius: 8px; padding: 10px 14px; font-weight: 700; }
+  QPushButton#FocusBtn[focusOn="false"]:hover { background: #334155; }
+  QPushButton#FocusBtn[focusOn="false"]:pressed { background: #1E293B; }
+  QProgressBar {
+    background: #0B0F14; border: 1px solid #243041; border-radius: 6px; min-height: 18px;
+    text-align: center; color: #F1F5F9; font-size: 11px; font-weight: 600;
   }
-  QPushButton#FocusBtn[focusOn="false"] {
-    background: #243041;
-    color: #F1F5F9;
-  }
+  QProgressBar::chunk { background: #2DD4BF; border-radius: 5px; }
   QCheckBox { color: #F1F5F9; spacing: 8px; }
-  QComboBox {
-    background: #141A22;
-    color: #F1F5F9;
-    border: 1px solid #243041;
-    border-radius: 8px;
-    padding: 6px 10px;
-    min-width: 280px;
-  }
-  QComboBox QAbstractItemView {
-    background: #141A22;
-    color: #F1F5F9;
-    selection-background-color: #243041;
+  QComboBox, QSpinBox, QLineEdit {
+    background: #141A22; color: #F1F5F9; border: 1px solid #243041;
+    border-radius: 8px; padding: 6px 10px;
   }
   QPlainTextEdit {
-    background: #141A22;
-    color: #E2E8F0;
-    border: 1px solid #243041;
-    border-radius: 12px;
-    padding: 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    background: #141A22; color: #E2E8F0; border: 1px solid #243041;
+    border-radius: 12px; padding: 10px; font-size: 12px;
+  }
+  QTableWidget {
+    background: #141A22; color: #E2E8F0; border: 1px solid #243041;
+    border-radius: 12px; gridline-color: #243041;
+  }
+  QHeaderView::section {
+    background: #0B0F14; color: #94A3B8; border: none; padding: 6px; font-weight: 600;
   }
 )";
 
@@ -119,7 +99,6 @@ QFrame* makeCard(const QString& title, QLabel** value_out, QWidget* parent) {
   card->setObjectName("Card");
   auto* lay = new QVBoxLayout(card);
   lay->setContentsMargins(14, 12, 14, 12);
-  lay->setSpacing(6);
   auto* t = new QLabel(title, card);
   t->setObjectName("CardTitle");
   auto* v = new QLabel(QStringLiteral("—"), card);
@@ -139,21 +118,32 @@ QPushButton* makeNav(const QString& text, QWidget* parent) {
   return b;
 }
 
+QString fmtDur(std::int64_t sec) {
+  if (sec < 0) sec = 0;
+  const auto h = sec / 3600;
+  const auto m = (sec % 3600) / 60;
+  if (h > 0) return QString("%1h %2m").arg(h).arg(m);
+  return QString("%1m").arg(m);
+}
+
+int pct(std::int64_t part, std::int64_t whole) {
+  if (whole <= 0) return 0;
+  return static_cast<int>((100.0 * static_cast<double>(part)) / static_cast<double>(whole) + 0.5);
+}
+
 } // namespace
 
 DashboardWindow::DashboardWindow(QWidget* parent) : QWidget(parent) {
   setObjectName("DashboardRoot");
   setWindowTitle(tr("focusGaze"));
-  setMinimumSize(760, 560);
+  setMinimumSize(820, 600);
   setStyleSheet(kAppStyle);
 
   auto* root = new QHBoxLayout(this);
   root->setContentsMargins(16, 16, 16, 16);
   root->setSpacing(14);
 
-  // --- Left nav ---
   auto* nav = new QVBoxLayout();
-  nav->setSpacing(6);
   auto* brand = new QLabel(tr("focusGaze"), this);
   brand->setObjectName("Title");
   auto* sub = new QLabel(tr("Local productivity guardian"), this);
@@ -161,28 +151,36 @@ DashboardWindow::DashboardWindow(QWidget* parent) : QWidget(parent) {
   nav->addWidget(brand);
   nav->addWidget(sub);
   nav->addSpacing(12);
-
   nav_overview_ = makeNav(tr("Overview"), this);
   nav_status_ = makeNav(tr("Status"), this);
-  nav_stats_ = makeNav(tr("Last session"), this);
+  nav_stats_ = makeNav(tr("Statistics"), this);
+  nav_settings_ = makeNav(tr("Settings"), this);
   connect(nav_overview_, &QPushButton::clicked, this, [this]() { showPage(Page::Overview); });
   connect(nav_status_, &QPushButton::clicked, this, [this]() { showPage(Page::Status); });
   connect(nav_stats_, &QPushButton::clicked, this, [this]() {
     emit refreshStatsRequested();
     showPage(Page::Stats);
   });
+  connect(nav_settings_, &QPushButton::clicked, this, [this]() { showPage(Page::Settings); });
   nav->addWidget(nav_overview_);
   nav->addWidget(nav_status_);
   nav->addWidget(nav_stats_);
+  nav->addWidget(nav_settings_);
   nav->addStretch(1);
   root->addLayout(nav, 0);
 
   stack_ = new QStackedWidget(this);
+  stack_->addWidget(buildOverview());
+  stack_->addWidget(buildStatus());
+  stack_->addWidget(buildStats());
+  stack_->addWidget(buildSettings());
+  root->addWidget(stack_, 1);
+  showPage(Page::Overview);
+}
 
-  // ===== Overview page =====
+QWidget* DashboardWindow::buildOverview() {
   auto* overview = new QWidget(stack_);
   auto* ol = new QVBoxLayout(overview);
-  ol->setContentsMargins(4, 0, 0, 0);
   ol->setSpacing(14);
 
   auto* top = new QHBoxLayout();
@@ -191,16 +189,13 @@ DashboardWindow::DashboardWindow(QWidget* parent) : QWidget(parent) {
   focus_btn_ = new QPushButton(tr("Turn Focus ON"), overview);
   focus_btn_->setObjectName("FocusBtn");
   focus_btn_->setProperty("focusOn", false);
-  focus_btn_->setMinimumWidth(140);
   connect(focus_btn_, &QPushButton::clicked, this, [this]() { emit focusToggled(!focus_on_); });
-  top->addWidget(focus_badge_, 0, Qt::AlignVCenter);
+  top->addWidget(focus_badge_);
   top->addStretch(1);
-  top->addWidget(focus_btn_, 0, Qt::AlignVCenter);
+  top->addWidget(focus_btn_);
   ol->addLayout(top);
 
   auto* grid = new QGridLayout();
-  grid->setHorizontalSpacing(12);
-  grid->setVerticalSpacing(12);
   grid->addWidget(makeCard(tr("Bridge"), &bridge_value_, overview), 0, 0);
   grid->addWidget(makeCard(tr("Camera"), &camera_value_, overview), 0, 1);
   grid->addWidget(makeCard(tr("Phone"), &phone_value_, overview), 1, 0);
@@ -223,14 +218,10 @@ DashboardWindow::DashboardWindow(QWidget* parent) : QWidget(parent) {
   auto* cam_label = new QLabel(tr("Camera device"), overview);
   cam_label->setObjectName("CardTitle");
   camera_combo_ = new QComboBox(overview);
-  camera_combo_->setToolTip(
-      tr("Pick the Mac webcam explicitly. Continuity/iPhone often appears as another index."));
-  connect(camera_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-          [this](int) {
-            if (suppress_camera_device_signal_) return;
-            const int dev = camera_combo_->currentData().toInt();
-            emit cameraDeviceChanged(dev);
-          });
+  connect(camera_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+    if (suppress_camera_device_signal_) return;
+    emit cameraDeviceChanged(camera_combo_->currentData().toInt());
+  });
   cam_row->addWidget(cam_label);
   cam_row->addWidget(camera_combo_, 1);
   ol->addLayout(cam_row);
@@ -259,44 +250,223 @@ DashboardWindow::DashboardWindow(QWidget* parent) : QWidget(parent) {
   actions->addWidget(connect_btn);
   ol->addLayout(actions);
   ol->addStretch(1);
-  stack_->addWidget(overview);
+  return overview;
+}
 
-  // ===== Status page =====
+QWidget* DashboardWindow::buildStatus() {
   auto* status_page = new QWidget(stack_);
   auto* sl = new QVBoxLayout(status_page);
   auto* st_title = new QLabel(tr("Status"), status_page);
   st_title->setObjectName("Title");
   sl->addWidget(st_title);
-  auto* st_sub = new QLabel(tr("Live system state (updates while this window is open)."), status_page);
+  auto* st_sub = new QLabel(
+      tr("Live system state (~1s while this page is open). "
+         "Phone pick-ups and URL events are recorded in the background even if you leave."),
+      status_page);
   st_sub->setObjectName("Subtitle");
+  st_sub->setWordWrap(true);
   sl->addWidget(st_sub);
   status_detail_ = new QPlainTextEdit(status_page);
   status_detail_->setReadOnly(true);
-  status_detail_->setPlaceholderText(tr("Status will appear here…"));
   sl->addWidget(status_detail_, 1);
-  stack_->addWidget(status_page);
+  return status_page;
+}
 
-  // ===== Stats page =====
-  auto* stats_page = new QWidget(stack_);
-  auto* pl = new QVBoxLayout(stats_page);
-  auto* pl_title = new QLabel(tr("Last session"), stats_page);
-  pl_title->setObjectName("Title");
-  pl->addWidget(pl_title);
-  auto* pl_sub = new QLabel(tr("Productivity summary for the most recent focus session."), stats_page);
-  pl_sub->setObjectName("Subtitle");
-  pl->addWidget(pl_sub);
-  stats_detail_ = new QPlainTextEdit(stats_page);
-  stats_detail_->setReadOnly(true);
-  stats_detail_->setPlaceholderText(tr("No session data yet. Turn Focus ON, then OFF to end a session."));
-  pl->addWidget(stats_detail_, 1);
-  auto* refresh = new QPushButton(tr("Refresh"), stats_page);
+QWidget* DashboardWindow::buildStats() {
+  auto* page = new QWidget(stack_);
+  auto* lay = new QVBoxLayout(page);
+  auto* title = new QLabel(tr("Statistics"), page);
+  title->setObjectName("Title");
+  lay->addWidget(title);
+  auto* sub = new QLabel(
+      tr("Data is always recorded in the background while Focus is on. "
+         "This page refreshes live while open (~1s); leave anytime."),
+      page);
+  sub->setObjectName("Subtitle");
+  sub->setWordWrap(true);
+  lay->addWidget(sub);
+
+  auto* metrics = new QHBoxLayout();
+  auto addMetric = [&](QLabel** value, const QString& label) {
+    auto* card = new QFrame(page);
+    card->setObjectName("Card");
+    auto* cl = new QVBoxLayout(card);
+    auto* v = new QLabel(QStringLiteral("—"), card);
+    v->setObjectName("MetricBig");
+    auto* l = new QLabel(label, card);
+    l->setObjectName("MetricLabel");
+    cl->addWidget(v);
+    cl->addWidget(l);
+    *value = v;
+    metrics->addWidget(card);
+  };
+  addMetric(&score_value_, tr("SCORE / 100"));
+  addMetric(&duration_value_, tr("FOCUS TIME"));
+  addMetric(&alarms_value_, tr("BLOCKED EVENTS"));
+  lay->addLayout(metrics);
+
+  auto* bars_card = new QFrame(page);
+  bars_card->setObjectName("Card");
+  auto* bl = new QVBoxLayout(bars_card);
+  auto addBar = [&](QLabel** lbl, QProgressBar** bar, const QString& name) {
+    auto* row = new QHBoxLayout();
+    auto* l = new QLabel(name, bars_card);
+    l->setObjectName("CardTitle");
+    l->setMinimumWidth(100);
+    auto* p = new QProgressBar(bars_card);
+    p->setRange(0, 100);
+    p->setValue(0);
+    p->setTextVisible(true);
+    p->setFormat(QStringLiteral("%p%"));
+    p->setMinimumHeight(20);
+    row->addWidget(l);
+    row->addWidget(p, 1);
+    bl->addLayout(row);
+    *lbl = l;
+    *bar = p;
+  };
+  addBar(&lbl_productive_, &bar_productive_, tr("ON-TASK"));
+  addBar(&lbl_neutral_, &bar_neutral_, tr("NEUTRAL"));
+  addBar(&lbl_blocked_, &bar_blocked_, tr("BLOCKED"));
+  addBar(&lbl_phone_, &bar_phone_, tr("PHONE"));
+  lay->addWidget(bars_card);
+
+  auto* week_title = new QLabel(tr("LAST 7 DAYS (score)"), page);
+  week_title->setObjectName("CardTitle");
+  lay->addWidget(week_title);
+  week_bars_host_ = new QWidget(page);
+  week_bars_layout_ = new QHBoxLayout(week_bars_host_);
+  week_bars_layout_->setContentsMargins(0, 0, 0, 0);
+  lay->addWidget(week_bars_host_);
+
+  sessions_table_ = new QTableWidget(0, 5, page);
+  sessions_table_->setHorizontalHeaderLabels(
+      {tr("Session"), tr("Duration"), tr("Score"), tr("Blocked"), tr("Phone")});
+  sessions_table_->horizontalHeader()->setStretchLastSection(true);
+  sessions_table_->verticalHeader()->setVisible(false);
+  sessions_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  sessions_table_->setSelectionMode(QAbstractItemView::NoSelection);
+  sessions_table_->setMaximumHeight(180);
+  lay->addWidget(sessions_table_);
+
+  auto* actions = new QHBoxLayout();
+  auto* refresh = new QPushButton(tr("Refresh"), page);
   refresh->setObjectName("Secondary");
+  refresh->setCursor(Qt::PointingHandCursor);
   connect(refresh, &QPushButton::clicked, this, &DashboardWindow::refreshStatsRequested);
-  pl->addWidget(refresh, 0, Qt::AlignLeft);
-  stack_->addWidget(stats_page);
+  actions->addWidget(refresh);
+  actions->addStretch(1);
+  lay->addLayout(actions);
+  return page;
+}
 
-  root->addWidget(stack_, 1);
-  showPage(Page::Overview);
+QWidget* DashboardWindow::buildSettings() {
+  auto* page = new QWidget(stack_);
+  auto* lay = new QVBoxLayout(page);
+  auto* title = new QLabel(tr("Settings"), page);
+  title->setObjectName("Title");
+  lay->addWidget(title);
+
+  auto* form = new QGridLayout();
+  int r = 0;
+  auto addLabel = [&](const QString& t) {
+    auto* l = new QLabel(t, page);
+    l->setObjectName("CardTitle");
+    form->addWidget(l, r, 0);
+  };
+
+  addLabel(tr("RESUME FOCUS ON LAUNCH"));
+  set_resume_ = new QCheckBox(tr("Restore open Focus session after restart"), page);
+  form->addWidget(set_resume_, r++, 1);
+
+  addLabel(tr("PRIVACY"));
+  set_privacy_ = new QCheckBox(tr("Redact URL query strings when logging"), page);
+  form->addWidget(set_privacy_, r++, 1);
+
+  addLabel(tr("ALARM SOUND"));
+  set_alarm_sound_ = new QCheckBox(tr("Play sound while sticky alarm is active"), page);
+  form->addWidget(set_alarm_sound_, r++, 1);
+
+  addLabel(tr("SOUND PRESET"));
+  auto* sound_row = new QHBoxLayout();
+  set_alarm_sound_name_ = new QComboBox(page);
+  for (const char* name :
+       {"default", "sosumi", "basso", "blow", "bottle", "frog", "funk", "glass", "hero", "morse",
+        "ping", "pop", "purr", "submarine", "tink"}) {
+    set_alarm_sound_name_->addItem(QString::fromUtf8(name));
+  }
+  auto* test_sound = new QPushButton(tr("Test alarm sound"), page);
+  test_sound->setObjectName("Secondary");
+  connect(test_sound, &QPushButton::clicked, this, &DashboardWindow::testAlarmSoundRequested);
+  sound_row->addWidget(set_alarm_sound_name_, 1);
+  sound_row->addWidget(test_sound);
+  form->addLayout(sound_row, r++, 1);
+
+  addLabel(tr("PHONE THRESHOLD (SECONDS)"));
+  set_phone_threshold_ = new QSpinBox(page);
+  set_phone_threshold_->setRange(5, 3600);
+  set_phone_threshold_->setValue(60);
+  set_phone_threshold_->setToolTip(tr("Cumulative in-use seconds inside the rolling window to alarm"));
+  form->addWidget(set_phone_threshold_, r++, 1);
+
+  addLabel(tr("PHONE WINDOW (MINUTES)"));
+  set_phone_window_min_ = new QSpinBox(page);
+  set_phone_window_min_->setRange(1, 240);
+  set_phone_window_min_->setValue(30);
+  form->addWidget(set_phone_window_min_, r++, 1);
+
+  addLabel(tr("CAMERA DEVICE INDEX"));
+  set_camera_index_ = new QSpinBox(page);
+  set_camera_index_->setRange(0, 16);
+  form->addWidget(set_camera_index_, r++, 1);
+
+  addLabel(tr("BRIDGE PORT"));
+  set_bridge_port_ = new QSpinBox(page);
+  set_bridge_port_->setRange(1024, 65535);
+  set_bridge_port_->setValue(18765);
+  form->addWidget(set_bridge_port_, r++, 1);
+
+  addLabel(tr("BRIDGE TOKEN"));
+  set_token_ = new QLineEdit(page);
+  set_token_->setEchoMode(QLineEdit::Password);
+  set_token_->setPlaceholderText(tr("Leave blank to keep current token"));
+  form->addWidget(set_token_, r++, 1);
+
+  lay->addLayout(form);
+
+  auto* bl_lab = new QLabel(
+      tr("BLOCKLIST (one domain per line — sitename.com also matches www / m / subdomains)"), page);
+  bl_lab->setObjectName("CardTitle");
+  lay->addWidget(bl_lab);
+  set_blocklist_ = new QPlainTextEdit(page);
+  set_blocklist_->setMaximumHeight(100);
+  set_blocklist_->setPlaceholderText(tr("example.com\ninstagram.com"));
+  lay->addWidget(set_blocklist_);
+
+  auto* al_lab = new QLabel(tr("ALLOWLIST (one domain per line)"), page);
+  al_lab->setObjectName("CardTitle");
+  lay->addWidget(al_lab);
+  set_allowlist_ = new QPlainTextEdit(page);
+  set_allowlist_->setMaximumHeight(80);
+  lay->addWidget(set_allowlist_);
+
+  auto* actions = new QHBoxLayout();
+  auto* save = new QPushButton(tr("Save settings"), page);
+  save->setObjectName("Primary");
+  connect(save, &QPushButton::clicked, this, &DashboardWindow::saveSettingsRequested);
+  auto* reset = new QPushButton(tr("Reset defaults"), page);
+  reset->setObjectName("Secondary");
+  connect(reset, &QPushButton::clicked, this, &DashboardWindow::resetSettingsRequested);
+  auto* copy = new QPushButton(tr("Copy token"), page);
+  copy->setObjectName("Secondary");
+  connect(copy, &QPushButton::clicked, this, &DashboardWindow::copyTokenRequested);
+  actions->addWidget(save);
+  actions->addWidget(reset);
+  actions->addWidget(copy);
+  actions->addStretch(1);
+  lay->addLayout(actions);
+  lay->addStretch(1);
+  return page;
 }
 
 void DashboardWindow::setNavChecked(Page page) {
@@ -309,6 +479,7 @@ void DashboardWindow::setNavChecked(Page page) {
   apply(nav_overview_, page == Page::Overview);
   apply(nav_status_, page == Page::Status);
   apply(nav_stats_, page == Page::Stats);
+  apply(nav_settings_, page == Page::Settings);
 }
 
 void DashboardWindow::showPage(Page page) {
@@ -319,10 +490,17 @@ void DashboardWindow::showPage(Page page) {
   activateWindow();
 }
 
+DashboardWindow::Page DashboardWindow::currentPage() const {
+  if (!stack_) return Page::Overview;
+  const int idx = stack_->currentIndex();
+  if (idx < 0 || idx > static_cast<int>(Page::Settings)) return Page::Overview;
+  return static_cast<Page>(idx);
+}
+
 void DashboardWindow::setStatus(bool focus_on, bool bridge_ok, int bridge_port, bool camera_on,
                                bool phone_visible, bool alarm_active, const QString& alarm_text,
                                const QString& last_session_line, int camera_device_index,
-                               const QString& camera_device_label) {
+                               const QString& camera_device_label, const QString& phone_detail) {
   focus_on_ = focus_on;
   focus_badge_->setText(focus_on ? tr("FOCUS ON") : tr("FOCUS OFF"));
   focus_btn_->setText(focus_on ? tr("Turn Focus OFF") : tr("Turn Focus ON"));
@@ -332,13 +510,16 @@ void DashboardWindow::setStatus(bool focus_on, bool bridge_ok, int bridge_port, 
 
   bridge_value_->setText(bridge_ok ? tr("Online · port %1").arg(bridge_port) : tr("Stopped"));
   QString cam_text = camera_on ? tr("Monitoring (background)") : tr("Off");
-  if (!camera_device_label.isEmpty()) {
-    cam_text += QStringLiteral("\n") + camera_device_label;
-  } else {
-    cam_text += tr("\nDevice index %1").arg(camera_device_index);
-  }
+  cam_text += QStringLiteral("\n") +
+              (camera_device_label.isEmpty() ? tr("Device index %1").arg(camera_device_index)
+                                            : camera_device_label);
   camera_value_->setText(cam_text);
-  phone_value_->setText(phone_visible ? tr("In use / visible") : tr("Idle / desk"));
+  if (!phone_detail.isEmpty()) {
+    phone_value_->setText((phone_visible ? tr("In use") : tr("Idle")) + QStringLiteral("\n") +
+                          phone_detail);
+  } else {
+    phone_value_->setText(phone_visible ? tr("In use / visible") : tr("Idle / desk"));
+  }
   if (alarm_active) {
     alarm_value_->setText(alarm_text.isEmpty() ? tr("Active") : alarm_text);
     alarm_value_->setStyleSheet("color: #F87171; font-size: 14px; font-weight: 700;");
@@ -350,7 +531,6 @@ void DashboardWindow::setStatus(bool focus_on, bool bridge_ok, int bridge_port, 
 
   const QSignalBlocker block(camera_check_);
   camera_check_->setChecked(camera_on);
-
   if (camera_combo_ && camera_combo_->count() > 0) {
     suppress_camera_device_signal_ = true;
     const int idx = camera_combo_->findData(camera_device_index);
@@ -363,8 +543,90 @@ void DashboardWindow::setStatusDetail(const QString& text) {
   if (status_detail_) status_detail_->setPlainText(text);
 }
 
-void DashboardWindow::setStatsDetail(const QString& text) {
-  if (stats_detail_) stats_detail_->setPlainText(text);
+void DashboardWindow::setStatistics(const SessionStats* last_session,
+                                   const std::vector<DailyStats>& last7_days,
+                                   const std::vector<SessionStats>& recent) {
+  auto applyBar = [](QProgressBar* bar, QLabel* lbl, const QString& title, int percent,
+                     const QString& extra = {}) {
+    if (!bar) return;
+    percent = std::clamp(percent, 0, 100);
+    // Force repaint even when value is unchanged (Qt can skip otherwise).
+    if (bar->value() == percent) bar->setValue(percent == 0 ? 1 : percent - 1);
+    bar->setValue(percent);
+    bar->setFormat(QStringLiteral("%1%").arg(percent));
+    bar->update();
+    if (lbl) {
+      lbl->setText(extra.isEmpty() ? QStringLiteral("%1 %2%").arg(title).arg(percent)
+                                   : QStringLiteral("%1 %2% · %3").arg(title).arg(percent).arg(extra));
+    }
+  };
+
+  if (last_session) {
+    score_value_->setText(QString::number(last_session->score, 'f', 1));
+    duration_value_->setText(fmtDur(last_session->focus_seconds));
+    alarms_value_->setText(QString::number(last_session->blocked_event_count));
+    const auto fs = std::max<std::int64_t>(1, last_session->focus_seconds);
+    // Phone may include open bout seconds already merged by caller into phone_seconds.
+    const int p_prod = pct(last_session->productive_seconds, fs);
+    const int p_neu = pct(last_session->neutral_seconds, fs);
+    const int p_blk = pct(last_session->social_seconds, fs);
+    const int p_ph = pct(last_session->phone_seconds, fs);
+    applyBar(bar_productive_, lbl_productive_, tr("ON-TASK"), p_prod);
+    applyBar(bar_neutral_, lbl_neutral_, tr("NEUTRAL"), p_neu);
+    applyBar(bar_blocked_, lbl_blocked_, tr("BLOCKED"), p_blk);
+    applyBar(bar_phone_, lbl_phone_, tr("PHONE"), p_ph, fmtDur(last_session->phone_seconds));
+  } else {
+    score_value_->setText(QStringLiteral("—"));
+    duration_value_->setText(QStringLiteral("—"));
+    alarms_value_->setText(QStringLiteral("0"));
+    applyBar(bar_productive_, lbl_productive_, tr("ON-TASK"), 0);
+    applyBar(bar_neutral_, lbl_neutral_, tr("NEUTRAL"), 0);
+    applyBar(bar_blocked_, lbl_blocked_, tr("BLOCKED"), 0);
+    applyBar(bar_phone_, lbl_phone_, tr("PHONE"), 0, fmtDur(0));
+  }
+
+  // Week bars — update in place when possible to avoid flicker / “static” look.
+  const int want = static_cast<int>(last7_days.size());
+  // Clear previous widgets fully.
+  while (QLayoutItem* it = week_bars_layout_->takeAt(0)) {
+    if (it->widget()) it->widget()->deleteLater();
+    delete it;
+  }
+  for (const auto& d : last7_days) {
+    auto* col = new QWidget(week_bars_host_);
+    auto* cl = new QVBoxLayout(col);
+    cl->setContentsMargins(2, 0, 2, 0);
+    auto* bar = new QProgressBar(col);
+    bar->setOrientation(Qt::Vertical);
+    bar->setRange(0, 100);
+    const int sc = std::clamp(static_cast<int>(d.score + 0.5), 0, 100);
+    bar->setValue(sc);
+    bar->setFixedWidth(28);
+    bar->setFixedHeight(90);
+    bar->setTextVisible(true);
+    bar->setFormat(QString::number(sc));
+    auto* day = new QLabel(QString::fromStdString(d.day).mid(5), col); // MM-DD
+    day->setObjectName("MetricLabel");
+    day->setAlignment(Qt::AlignCenter);
+    cl->addWidget(bar, 0, Qt::AlignHCenter);
+    cl->addWidget(day);
+    week_bars_layout_->addWidget(col);
+  }
+  week_bars_layout_->addStretch(1);
+  (void)want;
+
+  sessions_table_->setRowCount(static_cast<int>(recent.size()));
+  for (int i = 0; i < static_cast<int>(recent.size()); ++i) {
+    const auto& s = recent[static_cast<std::size_t>(i)];
+    sessions_table_->setItem(i, 0, new QTableWidgetItem(QString::number(s.session_id)));
+    sessions_table_->setItem(i, 1, new QTableWidgetItem(fmtDur(s.focus_seconds)));
+    sessions_table_->setItem(i, 2, new QTableWidgetItem(QString::number(s.score, 'f', 1)));
+    sessions_table_->setItem(i, 3, new QTableWidgetItem(QString::number(s.blocked_event_count)));
+    sessions_table_->setItem(i, 4, new QTableWidgetItem(fmtDur(s.phone_seconds)));
+  }
+  // Ensure metrics repaint even if values changed only slightly.
+  if (score_value_) score_value_->update();
+  if (duration_value_) duration_value_->update();
 }
 
 void DashboardWindow::setCameraDevices(const std::vector<std::pair<int, QString>>& devices,
@@ -373,16 +635,70 @@ void DashboardWindow::setCameraDevices(const std::vector<std::pair<int, QString>
   suppress_camera_device_signal_ = true;
   camera_combo_->clear();
   if (devices.empty()) {
-    camera_combo_->addItem(tr("No cameras detected — check Privacy → Camera"), selected_index);
+    camera_combo_->addItem(tr("No cameras detected"), selected_index);
   } else {
-    for (const auto& d : devices) {
-      camera_combo_->addItem(d.second, d.first);
-    }
+    for (const auto& d : devices) camera_combo_->addItem(d.second, d.first);
   }
   const int idx = camera_combo_->findData(selected_index);
   if (idx >= 0) camera_combo_->setCurrentIndex(idx);
-  else if (camera_combo_->count() > 0) camera_combo_->setCurrentIndex(0);
   suppress_camera_device_signal_ = false;
+}
+
+void DashboardWindow::loadSettingsForm(const Settings& s) {
+  set_resume_->setChecked(s.resume_focus_on_launch);
+  set_privacy_->setChecked(s.privacy_redact);
+  set_alarm_sound_->setChecked(s.alarm_sound_enabled);
+  {
+    const QString sound = QString::fromStdString(s.alarm_sound);
+    int idx = set_alarm_sound_name_->findText(sound, Qt::MatchFixedString);
+    if (idx < 0) {
+      set_alarm_sound_name_->addItem(sound);
+      idx = set_alarm_sound_name_->findText(sound);
+    }
+    if (idx >= 0) set_alarm_sound_name_->setCurrentIndex(idx);
+  }
+  set_phone_threshold_->setValue(static_cast<int>(s.phone_threshold_seconds));
+  set_phone_window_min_->setValue(static_cast<int>(s.phone_window_seconds / 60));
+  set_camera_index_->setValue(s.camera_device_index);
+  set_bridge_port_->setValue(s.bridge_port);
+  set_token_->clear();
+  set_token_->setPlaceholderText(tr("Current token set (%1 chars) — leave blank to keep")
+                                     .arg(static_cast<int>(s.bridge_token.size())));
+  QString bl;
+  for (const auto& d : s.blocklist) bl += QString::fromStdString(d) + "\n";
+  set_blocklist_->setPlainText(bl.trimmed());
+  QString al;
+  for (const auto& d : s.allowlist) al += QString::fromStdString(d) + "\n";
+  set_allowlist_->setPlainText(al.trimmed());
+}
+
+Settings DashboardWindow::readSettingsForm(const Settings& base) const {
+  Settings s = base;
+  s.resume_focus_on_launch = set_resume_->isChecked();
+  s.privacy_redact = set_privacy_->isChecked();
+  s.alarm_sound_enabled = set_alarm_sound_->isChecked();
+  s.alarm_sound = set_alarm_sound_name_->currentText().trimmed().toStdString();
+  if (s.alarm_sound.empty()) s.alarm_sound = "default";
+  s.phone_threshold_seconds = set_phone_threshold_->value();
+  s.phone_window_seconds = static_cast<std::int64_t>(set_phone_window_min_->value()) * 60;
+  s.camera_device_index = set_camera_index_->value();
+  s.bridge_port = set_bridge_port_->value();
+  const QString tok = set_token_->text().trimmed();
+  if (!tok.isEmpty()) s.bridge_token = tok.toStdString();
+
+  auto parseLines = [](const QString& text) {
+    std::vector<std::string> out;
+    for (const QString& line : text.split('\n')) {
+      const QString t = line.trimmed();
+      if (t.isEmpty() || t.startsWith('#')) continue;
+      out.push_back(t.toStdString());
+    }
+    // Normalize sitename.com / www / full URLs into bare domains (matches variants in backend).
+    return UrlClassifier::normalizeDomainList(out);
+  };
+  s.blocklist = parseLines(set_blocklist_->toPlainText());
+  s.allowlist = parseLines(set_allowlist_->toPlainText());
+  return s;
 }
 
 } // namespace focusgaze

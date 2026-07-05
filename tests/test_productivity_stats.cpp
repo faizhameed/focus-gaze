@@ -7,6 +7,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
+
 using focusgaze::ProductivityStats;
 using focusgaze::Storage;
 using focusgaze::UrlEventRecord;
@@ -84,16 +86,40 @@ TEST_CASE("lastSessionSummary prefers most recently ended session", "[stats]") {
   REQUIRE(report.find(std::to_string(newer.id)) != std::string::npos);
 }
 
-TEST_CASE("lastSessionSummary falls back to active session when none ended", "[stats]") {
+TEST_CASE("lastSessionSummary prefers open session over older ended ones", "[stats]") {
   ScopedDataRoot scope;
   Storage db(scope.path() / "t.db");
   db.open();
-  const auto active = db.createSession(50, true);
+  const auto ended = db.createSession(100, true);
+  db.endSession(ended.id, 200);
+  const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+  const auto active = db.createSession(static_cast<focusgaze::EpochSeconds>(now - 90), true);
 
   ProductivityStats stats(db);
   auto s = stats.lastSessionSummary();
   REQUIRE(s.has_value());
   REQUIRE(s->session_id == active.id);
+  REQUIRE(s->focus_seconds >= 60);
+}
+
+TEST_CASE("lastSessionSummary falls back to active session when none ended", "[stats]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  // started far enough in the past that "now" yields positive focus_seconds
+  const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+  const auto active = db.createSession(static_cast<focusgaze::EpochSeconds>(now - 120), true);
+
+  ProductivityStats stats(db);
+  auto s = stats.lastSessionSummary();
+  REQUIRE(s.has_value());
+  REQUIRE(s->session_id == active.id);
+  // Open session must use wall-clock "now" as end so duration grows in the background.
+  REQUIRE(s->focus_seconds >= 100);
 }
 
 TEST_CASE("lastSessionSummary empty database returns nullopt", "[stats]") {
@@ -102,4 +128,35 @@ TEST_CASE("lastSessionSummary empty database returns nullopt", "[stats]") {
   db.open();
   ProductivityStats stats(db);
   REQUIRE_FALSE(stats.lastSessionSummary().has_value());
+}
+
+TEST_CASE("recentSessions and lastNDays and export helpers", "[stats]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  const auto a = db.createSession(1000, true);
+  db.endSession(a.id, 1100);
+  const auto b = db.createSession(2000, true);
+  db.endSession(b.id, 2300);
+
+  ProductivityStats stats(db);
+  const auto recent = stats.recentSessions(10);
+  REQUIRE(recent.size() >= 2);
+  REQUIRE(recent.front().session_id == b.id);
+
+  const auto week = stats.lastNDays(7);
+  REQUIRE(week.size() == 7);
+  for (const auto& d : week) {
+    REQUIRE(d.day.size() == 10);
+  }
+
+  const auto csv = ProductivityStats::toCsvMany(recent);
+  REQUIRE(csv.find("session_id") != std::string::npos);
+  REQUIRE(csv.find(std::to_string(b.id)) != std::string::npos);
+
+  const auto json = ProductivityStats::toJsonMany(recent);
+  REQUIRE(json.find("session_id") != std::string::npos);
+  REQUIRE(json.find(std::to_string(a.id)) != std::string::npos);
+
+  REQUIRE_FALSE(ProductivityStats::todayLocalYmd().empty());
 }

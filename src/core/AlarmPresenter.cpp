@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <map>
 #include <sstream>
 
 namespace focusgaze {
@@ -22,6 +23,49 @@ void AlarmPresenter::stop() {
   if (sound_thread_.joinable()) sound_thread_.join();
   hideOverlay();
   running_ = false;
+}
+
+void AlarmPresenter::setSoundEnabled(bool enabled) { sound_enabled_.store(enabled); }
+
+void AlarmPresenter::setSoundPlayer(SoundPlayer player) {
+  std::lock_guard lock(mu_);
+  sound_player_ = std::move(player);
+}
+
+void AlarmPresenter::playTestSound() { playBeep(); }
+
+std::string AlarmPresenter::resolveSystemSoundPath(const std::string& name) {
+#if defined(__APPLE__)
+  // macOS system sounds under /System/Library/Sounds
+  static const std::map<std::string, std::string> kMap = {
+      {"default", "/System/Library/Sounds/Sosumi.aiff"},
+      {"sosumi", "/System/Library/Sounds/Sosumi.aiff"},
+      {"basso", "/System/Library/Sounds/Basso.aiff"},
+      {"blow", "/System/Library/Sounds/Blow.aiff"},
+      {"bottle", "/System/Library/Sounds/Bottle.aiff"},
+      {"frog", "/System/Library/Sounds/Frog.aiff"},
+      {"funk", "/System/Library/Sounds/Funk.aiff"},
+      {"glass", "/System/Library/Sounds/Glass.aiff"},
+      {"hero", "/System/Library/Sounds/Hero.aiff"},
+      {"morse", "/System/Library/Sounds/Morse.aiff"},
+      {"ping", "/System/Library/Sounds/Ping.aiff"},
+      {"pop", "/System/Library/Sounds/Pop.aiff"},
+      {"purr", "/System/Library/Sounds/Purr.aiff"},
+      {"submarine", "/System/Library/Sounds/Submarine.aiff"},
+      {"tink", "/System/Library/Sounds/Tink.aiff"},
+  };
+  std::string key = name;
+  for (char& c : key) {
+    if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+  }
+  if (const auto it = kMap.find(key); it != kMap.end()) return it->second;
+  // Absolute path allowed for custom files.
+  if (!name.empty() && name.front() == '/') return name;
+  return kMap.at("default");
+#else
+  (void)name;
+  return {};
+#endif
 }
 
 void AlarmPresenter::setActiveReasons(std::vector<AlarmReason> reasons) {
@@ -58,8 +102,6 @@ std::string AlarmPresenter::messageFor(const std::vector<AlarmReason>& reasons) 
 }
 
 void AlarmPresenter::showOverlay(const std::string& message) {
-  // No OpenCV windows here — avoids NSWindow / multi-thread OpenCV crashes on macOS.
-  // CameraPreview draws the on-screen banner; we only log once per message change.
   if (!overlay_visible_ || message != last_message_) {
     last_message_ = message;
     std::cout << "\n*** " << message << " ***\n" << std::flush;
@@ -76,7 +118,22 @@ void AlarmPresenter::hideOverlay() {
 }
 
 void AlarmPresenter::playBeep() {
+  if (!sound_enabled_.load()) return;
+  SoundPlayer player;
+  {
+    std::lock_guard lock(mu_);
+    player = sound_player_;
+  }
+  if (player) {
+    try {
+      player();
+    } catch (...) {
+      // never kill the sound thread
+    }
+    return;
+  }
 #if defined(__APPLE__)
+  // Fallback when no UI player is installed.
   std::system("afplay /System/Library/Sounds/Sosumi.aiff >/dev/null 2>&1 &");
 #elif defined(_WIN32)
   std::system("powershell -c (New-Object Media.SoundPlayer "
@@ -93,8 +150,9 @@ void AlarmPresenter::soundLoop() {
       std::lock_guard lock(mu_);
       active = !reasons_.empty();
     }
-    if (active) {
+    if (active && sound_enabled_.load()) {
       playBeep();
+      // ~1.2s between beeps while alarm is sticky.
       for (int i = 0; i < 12 && !stop_.load(); ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     } else {

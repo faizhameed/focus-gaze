@@ -33,3 +33,16 @@ Designs were generated with **Google Stitch** (`stitch.withgoogle.com` / `stitch
 - **Camera / alarm chrome** → `src/ui/CameraWindow.cpp` styling
 
 Stitch HTML under `stitch/` is the design reference (often uses Tailwind CDN). Product code reimplements the look with offline-safe assets.
+
+## Product UI v2 (Stitch)
+
+Additional screens for shipping UX:
+
+| Screen | Assets |
+|--------|--------|
+| Statistics dashboard | `stitch/stats.html`, `stitch/stats.png` |
+| Onboarding welcome | `stitch/onboarding.html`, `stitch/onboarding.png` |
+| Onboarding permissions | `stitch/onboarding_permissions.html`, `stitch/onboarding_permissions.png` |
+| Settings | `stitch/settings.html`, `stitch/settings.png` |
+
+Implemented in-app as Qt pages (Overview / Status / Statistics / Settings) and `OnboardingWizard`.
