@@ -52,24 +52,52 @@ std::string shiftDay(const std::string& ymd, int delta_days) {
 
 ProductivityStats::ProductivityStats(Storage& storage) : storage_(storage) {}
 
-double ProductivityStats::computeScore(const SessionStats& s) {
-  if (s.focus_seconds <= 0) {
-    return 0.0;
-  }
-  const double productive_ratio =
-      static_cast<double>(s.productive_seconds) / static_cast<double>(s.focus_seconds);
-  const double social_ratio =
-      static_cast<double>(s.social_seconds) / static_cast<double>(s.focus_seconds);
-  const double phone_ratio =
-      static_cast<double>(s.phone_seconds) / static_cast<double>(s.focus_seconds);
-  double score = 100.0 * productive_ratio - 40.0 * social_ratio - 30.0 * phone_ratio;
-  // Small bonus for neutral focus time (not social)
-  const double neutral_ratio =
-      static_cast<double>(s.neutral_seconds) / static_cast<double>(s.focus_seconds);
-  score += 20.0 * neutral_ratio;
+double ProductivityStats::computeScoreParts(std::int64_t focus_s, std::int64_t productive_s,
+                                            std::int64_t unproductive_s, std::int64_t phone_s) {
+  if (focus_s <= 0) return 0.0;
+  const double f = static_cast<double>(focus_s);
+  // Productive share is rewarded; unproductive sites and phone time are penalized.
+  double score = 100.0 * (static_cast<double>(productive_s) / f) -
+                 40.0 * (static_cast<double>(unproductive_s) / f) -
+                 30.0 * (static_cast<double>(phone_s) / f);
   if (score < 0) score = 0;
   if (score > 100) score = 100;
   return score;
+}
+
+double ProductivityStats::computeScore(const SessionStats& s) {
+  // “Productive time” for scoring = allowlist + neutral (anything not on the blocklist).
+  const std::int64_t productive = s.productive_seconds + s.neutral_seconds;
+  return computeScoreParts(s.focus_seconds, productive, s.social_seconds, s.phone_seconds);
+}
+
+const char* ProductivityStats::windowLabel(StatsWindow w) {
+  switch (w) {
+    case StatsWindow::LastSession: return "Last session";
+    case StatsWindow::Today: return "Today";
+    case StatsWindow::Yesterday: return "Yesterday";
+    case StatsWindow::ThisWeek: return "This week";
+    case StatsWindow::LastWeek: return "Last week";
+    case StatsWindow::Last7Days: return "Last 7 days";
+    case StatsWindow::Month: return "This month";
+  }
+  return "Last session";
+}
+
+EpochSeconds ProductivityStats::localMidnightEpoch(const std::string& ymd) {
+  std::tm tm{};
+  if (std::sscanf(ymd.c_str(), "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) != 3) {
+    return 0;
+  }
+  tm.tm_year -= 1900;
+  tm.tm_mon -= 1;
+  tm.tm_hour = 0;
+  tm.tm_min = 0;
+  tm.tm_sec = 0;
+  tm.tm_isdst = -1;
+  const std::time_t t = std::mktime(&tm);
+  if (t == static_cast<std::time_t>(-1)) return 0;
+  return static_cast<EpochSeconds>(t);
 }
 
 SessionStats ProductivityStats::computeSession(std::int64_t session_id) const {
@@ -166,16 +194,14 @@ DailyStats ProductivityStats::computeDay(const std::string& day) const {
     const auto st = computeSession(s.id);
     d.focus_seconds += st.focus_seconds;
     d.social_seconds += st.social_seconds;
-    d.productive_seconds += st.productive_seconds;
+    // UI “productive” = allowlist work sites + neutral (non-blocklist) browsing.
+    d.productive_seconds += st.productive_seconds + st.neutral_seconds;
     d.phone_seconds += st.phone_seconds;
     ++d.session_count;
   }
-  SessionStats agg;
-  agg.focus_seconds = d.focus_seconds;
-  agg.social_seconds = d.social_seconds;
-  agg.productive_seconds = d.productive_seconds;
-  agg.phone_seconds = d.phone_seconds;
-  d.score = computeScore(agg);
+  // Score uses the same three-part formula as WindowStats (productive already includes neutral).
+  d.score = computeScoreParts(d.focus_seconds, d.productive_seconds, d.social_seconds,
+                              d.phone_seconds);
   return d;
 }
 
@@ -274,6 +300,141 @@ std::string ProductivityStats::toJsonMany(const std::vector<SessionStats>& sessi
     arr.push_back(std::move(j));
   }
   return arr.dump(2);
+}
+
+WindowStats ProductivityStats::computeRange(EpochSeconds start, EpochSeconds end, StatsWindow tag,
+                                            std::string label) const {
+  WindowStats w;
+  w.window = tag;
+  w.label = std::move(label);
+  w.range_start = start;
+  w.range_end = end;
+  if (end < start) std::swap(start, end);
+
+  const auto sessions = storage_.listSessions(500);
+  for (const auto& rec : sessions) {
+    const EpochSeconds s_end = rec.ended_at.value_or(static_cast<EpochSeconds>(
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count()));
+    // Include session if it overlaps [start, end).
+    if (s_end < start || rec.started_at >= end) continue;
+    auto st = computeSession(rec.id);
+    w.sessions.push_back(st);
+    w.focus_seconds += st.focus_seconds;
+    w.productive_seconds += st.productive_seconds + st.neutral_seconds;
+    w.unproductive_seconds += st.social_seconds;
+    w.phone_seconds += st.phone_seconds;
+    w.blocked_event_count += st.blocked_event_count;
+    ++w.session_count;
+  }
+  w.score = computeScoreParts(w.focus_seconds, w.productive_seconds, w.unproductive_seconds,
+                              w.phone_seconds);
+  return w;
+}
+
+WindowStats ProductivityStats::computeWindow(StatsWindow window) const {
+  const std::string today = todayLocalYmd();
+  const EpochSeconds now = static_cast<EpochSeconds>(
+      std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count());
+
+  if (window == StatsWindow::LastSession) {
+    WindowStats w;
+    w.window = window;
+    w.label = windowLabel(window);
+    if (auto s = lastSessionSummary()) {
+      w.sessions.push_back(*s);
+      w.focus_seconds = s->focus_seconds;
+      w.productive_seconds = s->productive_seconds + s->neutral_seconds;
+      w.unproductive_seconds = s->social_seconds;
+      w.phone_seconds = s->phone_seconds;
+      w.blocked_event_count = s->blocked_event_count;
+      w.session_count = 1;
+      w.range_start = s->started_at;
+      w.range_end = s->ended_at;
+      w.score = s->score;
+    }
+    return w;
+  }
+
+  EpochSeconds start = 0;
+  EpochSeconds end = now + 1;
+
+  switch (window) {
+    case StatsWindow::Today:
+      start = localMidnightEpoch(today);
+      end = start + 24 * 3600;
+      break;
+    case StatsWindow::Yesterday: {
+      const std::string y = shiftDay(today, -1);
+      start = localMidnightEpoch(y);
+      end = start + 24 * 3600;
+      break;
+    }
+    case StatsWindow::Last7Days:
+      start = localMidnightEpoch(shiftDay(today, -6));
+      end = localMidnightEpoch(today) + 24 * 3600;
+      break;
+    case StatsWindow::ThisWeek: {
+      // Monday-start week containing today.
+      std::tm tm{};
+      const EpochSeconds mid = localMidnightEpoch(today);
+      std::time_t t = static_cast<std::time_t>(mid);
+#if defined(_WIN32)
+      localtime_s(&tm, &t);
+#else
+      localtime_r(&t, &tm);
+#endif
+      // tm_wday: 0=Sun … 6=Sat → days since Monday
+      const int since_mon = (tm.tm_wday == 0) ? 6 : (tm.tm_wday - 1);
+      start = mid - static_cast<EpochSeconds>(since_mon) * 24 * 3600;
+      end = start + 7 * 24 * 3600;
+      break;
+    }
+    case StatsWindow::LastWeek: {
+      std::tm tm{};
+      const EpochSeconds mid = localMidnightEpoch(today);
+      std::time_t t = static_cast<std::time_t>(mid);
+#if defined(_WIN32)
+      localtime_s(&tm, &t);
+#else
+      localtime_r(&t, &tm);
+#endif
+      const int since_mon = (tm.tm_wday == 0) ? 6 : (tm.tm_wday - 1);
+      const EpochSeconds this_mon = mid - static_cast<EpochSeconds>(since_mon) * 24 * 3600;
+      end = this_mon;
+      start = this_mon - 7 * 24 * 3600;
+      break;
+    }
+    case StatsWindow::Month: {
+      // First day of current month 00:00 → now
+      std::string first = today.substr(0, 8) + "01";
+      start = localMidnightEpoch(first);
+      end = now + 1;
+      break;
+    }
+    case StatsWindow::LastSession:
+      break;
+  }
+
+  return computeRange(start, end, window, windowLabel(window));
+}
+
+std::vector<DailyStats> ProductivityStats::daysInRange(EpochSeconds start, EpochSeconds end) const {
+  std::vector<DailyStats> out;
+  if (end <= start) return out;
+  const std::string d0 = dayFromEpoch(start);
+  const std::string d1 = dayFromEpoch(end - 1);
+  std::string cur = d0;
+  // Safety: max 62 days in a chart
+  for (int n = 0; n < 62; ++n) {
+    out.push_back(computeDay(cur));
+    if (cur == d1) break;
+    cur = shiftDay(cur, 1);
+  }
+  return out;
 }
 
 } // namespace focusgaze

@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include <QAbstractItemView>
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFrame>
@@ -56,6 +57,9 @@ const char* kAppStyle = R"(
   }
   QPushButton#Secondary:hover { background: rgba(45, 212, 191, 0.12); border-color: #2DD4BF; color: #F1F5F9; }
   QPushButton#Secondary:pressed { background: rgba(45, 212, 191, 0.22); padding-top: 10px; padding-bottom: 8px; }
+  QPushButton#Secondary:checked {
+    background: rgba(45, 212, 191, 0.18); color: #2DD4BF; border-color: #2DD4BF;
+  }
   QPushButton#Nav {
     background: transparent; color: #94A3B8; border: 1px solid transparent;
     border-radius: 8px; padding: 8px 12px; font-weight: 600; text-align: left;
@@ -278,13 +282,46 @@ QWidget* DashboardWindow::buildStats() {
   auto* title = new QLabel(tr("Statistics"), page);
   title->setObjectName("Title");
   lay->addWidget(title);
-  auto* sub = new QLabel(
-      tr("Data is always recorded in the background while Focus is on. "
-         "This page refreshes live while open (~1s); leave anytime."),
+
+  auto* chips = new QHBoxLayout();
+  window_group_ = new QButtonGroup(page);
+  window_group_->setExclusive(true);
+  auto addChip = [&](const QString& text, StatsWindow w, bool checked) {
+    auto* b = new QPushButton(text, page);
+    b->setObjectName("Secondary");
+    b->setCheckable(true);
+    b->setChecked(checked);
+    b->setCursor(Qt::PointingHandCursor);
+    window_group_->addButton(b);
+    chips->addWidget(b);
+    connect(b, &QPushButton::clicked, this, [this, w]() {
+      stats_window_ = w;
+      emit statsWindowChanged(w);
+      emit refreshStatsRequested();
+    });
+  };
+  addChip(tr("Last session"), StatsWindow::LastSession, true);
+  addChip(tr("Today"), StatsWindow::Today, false);
+  addChip(tr("Yesterday"), StatsWindow::Yesterday, false);
+  addChip(tr("This week"), StatsWindow::ThisWeek, false);
+  addChip(tr("Last week"), StatsWindow::LastWeek, false);
+  addChip(tr("Last 7 days"), StatsWindow::Last7Days, false);
+  addChip(tr("This month"), StatsWindow::Month, false);
+  chips->addStretch(1);
+  lay->addLayout(chips);
+
+  window_label_ = new QLabel(tr("Window: Last session"), page);
+  window_label_->setObjectName("Subtitle");
+  lay->addWidget(window_label_);
+
+  score_help_ = new QLabel(
+      tr("Three metrics over Focus time: PRODUCTIVE (work allowlist + other non-blocked browsing), "
+         "UNPRODUCTIVE SITES (blocklist), PHONE (camera). "
+         "Score 0–100 = 100×productive/focus − 40×unproductive/focus − 30×phone/focus."),
       page);
-  sub->setObjectName("Subtitle");
-  sub->setWordWrap(true);
-  lay->addWidget(sub);
+  score_help_->setObjectName("Subtitle");
+  score_help_->setWordWrap(true);
+  lay->addWidget(score_help_);
 
   auto* metrics = new QHBoxLayout();
   auto addMetric = [&](QLabel** value, const QString& label) {
@@ -302,7 +339,6 @@ QWidget* DashboardWindow::buildStats() {
   };
   addMetric(&score_value_, tr("SCORE / 100"));
   addMetric(&duration_value_, tr("FOCUS TIME"));
-  addMetric(&alarms_value_, tr("BLOCKED EVENTS"));
   lay->addLayout(metrics);
 
   auto* bars_card = new QFrame(page);
@@ -312,26 +348,25 @@ QWidget* DashboardWindow::buildStats() {
     auto* row = new QHBoxLayout();
     auto* l = new QLabel(name, bars_card);
     l->setObjectName("CardTitle");
-    l->setMinimumWidth(100);
+    l->setMinimumWidth(150);
     auto* p = new QProgressBar(bars_card);
     p->setRange(0, 100);
     p->setValue(0);
     p->setTextVisible(true);
     p->setFormat(QStringLiteral("%p%"));
-    p->setMinimumHeight(20);
+    p->setMinimumHeight(22);
     row->addWidget(l);
     row->addWidget(p, 1);
     bl->addLayout(row);
     *lbl = l;
     *bar = p;
   };
-  addBar(&lbl_productive_, &bar_productive_, tr("ON-TASK"));
-  addBar(&lbl_neutral_, &bar_neutral_, tr("NEUTRAL"));
-  addBar(&lbl_blocked_, &bar_blocked_, tr("BLOCKED"));
+  addBar(&lbl_productive_, &bar_productive_, tr("PRODUCTIVE"));
+  addBar(&lbl_unproductive_, &bar_unproductive_, tr("UNPRODUCTIVE SITES"));
   addBar(&lbl_phone_, &bar_phone_, tr("PHONE"));
   lay->addWidget(bars_card);
 
-  auto* week_title = new QLabel(tr("LAST 7 DAYS (score)"), page);
+  auto* week_title = new QLabel(tr("FOCUS QUALITY BY DAY (selected window)"), page);
   week_title->setObjectName("CardTitle");
   lay->addWidget(week_title);
   week_bars_host_ = new QWidget(page);
@@ -341,7 +376,7 @@ QWidget* DashboardWindow::buildStats() {
 
   sessions_table_ = new QTableWidget(0, 5, page);
   sessions_table_->setHorizontalHeaderLabels(
-      {tr("Session"), tr("Duration"), tr("Score"), tr("Blocked"), tr("Phone")});
+      {tr("Session"), tr("Duration"), tr("Score"), tr("Unproductive"), tr("Phone")});
   sessions_table_->horizontalHeader()->setStretchLastSection(true);
   sessions_table_->verticalHeader()->setVisible(false);
   sessions_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -359,6 +394,7 @@ QWidget* DashboardWindow::buildStats() {
   lay->addLayout(actions);
   return page;
 }
+
 
 QWidget* DashboardWindow::buildSettings() {
   auto* page = new QWidget(stack_);
@@ -543,69 +579,78 @@ void DashboardWindow::setStatusDetail(const QString& text) {
   if (status_detail_) status_detail_->setPlainText(text);
 }
 
-void DashboardWindow::setStatistics(const SessionStats* last_session,
-                                   const std::vector<DailyStats>& last7_days,
-                                   const std::vector<SessionStats>& recent) {
+void DashboardWindow::setStatistics(const WindowStats& window,
+                                   const std::vector<DailyStats>& day_chart) {
   auto applyBar = [](QProgressBar* bar, QLabel* lbl, const QString& title, int percent,
                      const QString& extra = {}) {
     if (!bar) return;
     percent = std::clamp(percent, 0, 100);
-    // Force repaint even when value is unchanged (Qt can skip otherwise).
     if (bar->value() == percent) bar->setValue(percent == 0 ? 1 : percent - 1);
     bar->setValue(percent);
     bar->setFormat(QStringLiteral("%1%").arg(percent));
     bar->update();
     if (lbl) {
-      lbl->setText(extra.isEmpty() ? QStringLiteral("%1 %2%").arg(title).arg(percent)
-                                   : QStringLiteral("%1 %2% · %3").arg(title).arg(percent).arg(extra));
+      lbl->setText(extra.isEmpty() ? QStringLiteral("%1  %2%").arg(title).arg(percent)
+                                   : QStringLiteral("%1  %2% · %3").arg(title).arg(percent).arg(extra));
     }
   };
 
-  if (last_session) {
-    score_value_->setText(QString::number(last_session->score, 'f', 1));
-    duration_value_->setText(fmtDur(last_session->focus_seconds));
-    alarms_value_->setText(QString::number(last_session->blocked_event_count));
-    const auto fs = std::max<std::int64_t>(1, last_session->focus_seconds);
-    // Phone may include open bout seconds already merged by caller into phone_seconds.
-    const int p_prod = pct(last_session->productive_seconds, fs);
-    const int p_neu = pct(last_session->neutral_seconds, fs);
-    const int p_blk = pct(last_session->social_seconds, fs);
-    const int p_ph = pct(last_session->phone_seconds, fs);
-    applyBar(bar_productive_, lbl_productive_, tr("ON-TASK"), p_prod);
-    applyBar(bar_neutral_, lbl_neutral_, tr("NEUTRAL"), p_neu);
-    applyBar(bar_blocked_, lbl_blocked_, tr("BLOCKED"), p_blk);
-    applyBar(bar_phone_, lbl_phone_, tr("PHONE"), p_ph, fmtDur(last_session->phone_seconds));
+  if (window_label_) {
+    window_label_->setText(tr("Window: %1 · %2 session(s)")
+                               .arg(QString::fromStdString(window.label))
+                               .arg(window.session_count));
+  }
+
+  if (window.session_count > 0 || window.focus_seconds > 0) {
+    score_value_->setText(QString::number(window.score, 'f', 1));
+    duration_value_->setText(fmtDur(window.focus_seconds));
+    const auto fs = std::max<std::int64_t>(1, window.focus_seconds);
+    applyBar(bar_productive_, lbl_productive_, tr("PRODUCTIVE"),
+             pct(window.productive_seconds, fs), fmtDur(window.productive_seconds));
+    applyBar(bar_unproductive_, lbl_unproductive_, tr("UNPRODUCTIVE SITES"),
+             pct(window.unproductive_seconds, fs), fmtDur(window.unproductive_seconds));
+    applyBar(bar_phone_, lbl_phone_, tr("PHONE"), pct(window.phone_seconds, fs),
+             fmtDur(window.phone_seconds));
   } else {
     score_value_->setText(QStringLiteral("—"));
     duration_value_->setText(QStringLiteral("—"));
-    alarms_value_->setText(QStringLiteral("0"));
-    applyBar(bar_productive_, lbl_productive_, tr("ON-TASK"), 0);
-    applyBar(bar_neutral_, lbl_neutral_, tr("NEUTRAL"), 0);
-    applyBar(bar_blocked_, lbl_blocked_, tr("BLOCKED"), 0);
+    applyBar(bar_productive_, lbl_productive_, tr("PRODUCTIVE"), 0, fmtDur(0));
+    applyBar(bar_unproductive_, lbl_unproductive_, tr("UNPRODUCTIVE SITES"), 0, fmtDur(0));
     applyBar(bar_phone_, lbl_phone_, tr("PHONE"), 0, fmtDur(0));
   }
 
-  // Week bars — update in place when possible to avoid flicker / “static” look.
-  const int want = static_cast<int>(last7_days.size());
-  // Clear previous widgets fully.
   while (QLayoutItem* it = week_bars_layout_->takeAt(0)) {
     if (it->widget()) it->widget()->deleteLater();
     delete it;
   }
-  for (const auto& d : last7_days) {
+  for (const auto& d : day_chart) {
     auto* col = new QWidget(week_bars_host_);
     auto* cl = new QVBoxLayout(col);
     cl->setContentsMargins(2, 0, 2, 0);
     auto* bar = new QProgressBar(col);
     bar->setOrientation(Qt::Vertical);
     bar->setRange(0, 100);
-    const int sc = std::clamp(static_cast<int>(d.score + 0.5), 0, 100);
+    // Productive for the day = allowlist browser time + neutral (non-blocklist) share of focus.
+    const std::int64_t prod_day =
+        d.productive_seconds > 0
+            ? d.productive_seconds
+            : std::max<std::int64_t>(0, d.focus_seconds - d.social_seconds - d.phone_seconds);
+    const int sc = std::clamp(
+        static_cast<int>(ProductivityStats::computeScoreParts(d.focus_seconds, prod_day,
+                                                              d.social_seconds, d.phone_seconds) +
+                         0.5),
+        0, 100);
     bar->setValue(sc);
     bar->setFixedWidth(28);
     bar->setFixedHeight(90);
     bar->setTextVisible(true);
     bar->setFormat(QString::number(sc));
-    auto* day = new QLabel(QString::fromStdString(d.day).mid(5), col); // MM-DD
+    bar->setToolTip(tr("%1\nFocus %2 · Unproductive sites %3 · Phone %4")
+                        .arg(QString::fromStdString(d.day))
+                        .arg(fmtDur(d.focus_seconds))
+                        .arg(fmtDur(d.social_seconds))
+                        .arg(fmtDur(d.phone_seconds)));
+    auto* day = new QLabel(QString::fromStdString(d.day).mid(5), col);
     day->setObjectName("MetricLabel");
     day->setAlignment(Qt::AlignCenter);
     cl->addWidget(bar, 0, Qt::AlignHCenter);
@@ -613,21 +658,21 @@ void DashboardWindow::setStatistics(const SessionStats* last_session,
     week_bars_layout_->addWidget(col);
   }
   week_bars_layout_->addStretch(1);
-  (void)want;
 
+  const auto& recent = window.sessions;
   sessions_table_->setRowCount(static_cast<int>(recent.size()));
   for (int i = 0; i < static_cast<int>(recent.size()); ++i) {
     const auto& s = recent[static_cast<std::size_t>(i)];
     sessions_table_->setItem(i, 0, new QTableWidgetItem(QString::number(s.session_id)));
     sessions_table_->setItem(i, 1, new QTableWidgetItem(fmtDur(s.focus_seconds)));
     sessions_table_->setItem(i, 2, new QTableWidgetItem(QString::number(s.score, 'f', 1)));
-    sessions_table_->setItem(i, 3, new QTableWidgetItem(QString::number(s.blocked_event_count)));
+    sessions_table_->setItem(i, 3, new QTableWidgetItem(fmtDur(s.social_seconds)));
     sessions_table_->setItem(i, 4, new QTableWidgetItem(fmtDur(s.phone_seconds)));
   }
-  // Ensure metrics repaint even if values changed only slightly.
   if (score_value_) score_value_->update();
   if (duration_value_) duration_value_->update();
 }
+
 
 void DashboardWindow::setCameraDevices(const std::vector<std::pair<int, QString>>& devices,
                                       int selected_index) {

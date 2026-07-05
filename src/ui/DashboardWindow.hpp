@@ -3,6 +3,7 @@
 /// @file DashboardWindow.hpp
 /// App shell: Overview, Status, Statistics, Settings (Stitch-inspired).
 
+#include "core/ProductivityStats.hpp"
 #include "core/Settings.hpp"
 
 #include <QWidget>
@@ -20,6 +21,7 @@ class QLineEdit;
 class QProgressBar;
 class QTableWidget;
 class QHBoxLayout;
+class QButtonGroup;
 
 namespace focusgaze {
 
@@ -42,10 +44,10 @@ public slots:
 
   void setStatusDetail(const QString& text);
 
-  /// Rich statistics view (session + week bars + recent table).
-  void setStatistics(const SessionStats* last_session,
-                     const std::vector<DailyStats>& last7_days,
-                     const std::vector<SessionStats>& recent);
+  /// Rich statistics for a selected time window (3 metrics + day chart + sessions).
+  void setStatistics(const WindowStats& window, const std::vector<DailyStats>& day_chart);
+
+  StatsWindow selectedStatsWindow() const { return stats_window_; }
 
   void setCameraDevices(const std::vector<std::pair<int, QString>>& devices,
                         int selected_index);
@@ -70,10 +72,9 @@ signals:
   void connectBrowserRequested();
   void openExtensionStoreRequested();
   void refreshStatsRequested();
+  void statsWindowChanged(focusgaze::StatsWindow window);
   void saveSettingsRequested();
   void resetSettingsRequested();
-  void exportCsvRequested();
-  void exportJsonRequested();
   void testAlarmSoundRequested();
 
 private:
@@ -103,18 +104,19 @@ private:
   // Stats page
   QLabel* score_value_{nullptr};
   QLabel* duration_value_{nullptr};
-  QLabel* alarms_value_{nullptr};
+  QLabel* window_label_{nullptr};
+  QLabel* score_help_{nullptr};
   QProgressBar* bar_productive_{nullptr};
-  QProgressBar* bar_neutral_{nullptr};
-  QProgressBar* bar_blocked_{nullptr};
+  QProgressBar* bar_unproductive_{nullptr};
   QProgressBar* bar_phone_{nullptr};
   QLabel* lbl_productive_{nullptr};
-  QLabel* lbl_neutral_{nullptr};
-  QLabel* lbl_blocked_{nullptr};
+  QLabel* lbl_unproductive_{nullptr};
   QLabel* lbl_phone_{nullptr};
   QWidget* week_bars_host_{nullptr};
   QHBoxLayout* week_bars_layout_{nullptr};
   QTableWidget* sessions_table_{nullptr};
+  QButtonGroup* window_group_{nullptr};
+  StatsWindow stats_window_{StatsWindow::LastSession};
 
   // Settings form
   QCheckBox* set_resume_{nullptr};

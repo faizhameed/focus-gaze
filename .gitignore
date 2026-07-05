@@ -14,9 +14,10 @@ CTestTestfile.cmake
 _deps/
 install_manifest.txt
 
-# IDE / OS
+# IDE / OS / language servers (generated locally — never commit)
 .idea/
 .vscode/
+.cache/
 *.xcodeproj/
 *.xcworkspace/
 .DS_Store

@@ -516,21 +516,46 @@ void TrayController::refreshStatsPage() {
   if (!dashboard_ || !storage_) return;
   try {
     ProductivityStats stats(*storage_);
-    auto last = stats.lastSessionSummary();
-    // Merge live open phone bout into phone_seconds so the PHONE bar moves while phone is held.
-    if (last && phone_ && focus_ && focus_->isFocusOn()) {
+    // Aggregate for the chip the user selected (Last session / Today / Last 7 days / …).
+    WindowStats window = stats.computeWindow(dashboard_->selectedStatsWindow());
+
+    // While Focus is ON, fold the in-progress phone bout into live phone totals / score
+    // (DB only stores completed bouts until the phone is put down).
+    if (phone_ && focus_ && focus_->isFocusOn()) {
       const auto ph = phone_->status(wallNow());
-      last->phone_seconds += std::max<std::int64_t>(0, ph.open_bout_seconds);
-      // Recompute score with updated phone time for live feedback.
-      last->score = ProductivityStats::computeScore(*last);
+      const auto open_bout = std::max<std::int64_t>(0, ph.open_bout_seconds);
+      if (open_bout > 0) {
+        window.phone_seconds += open_bout;
+        for (auto& row : window.sessions) {
+          const auto rec = storage_->getSession(row.session_id);
+          if (rec && !rec->ended_at.has_value()) {
+            row.phone_seconds += open_bout;
+            row.score = ProductivityStats::computeScore(row);
+            break;
+          }
+        }
+        window.score = ProductivityStats::computeScoreParts(
+            window.focus_seconds, window.productive_seconds, window.unproductive_seconds,
+            window.phone_seconds);
+      }
     }
-    const auto week = stats.lastNDays(7);
-    auto recent = stats.recentSessions(10);
-    // Keep table rows for the active session consistent with the live bars.
-    if (last && !recent.empty() && recent.front().session_id == last->session_id) {
-      recent.front() = *last;
+
+    // Day chart uses real daily data for the selected window (Last 7 days = 7 bars, etc.).
+    std::vector<DailyStats> day_chart;
+    if (window.window == StatsWindow::LastSession) {
+      // Single-session window: one bar for the session's calendar day (if any).
+      if (window.range_start > 0) {
+        day_chart = stats.daysInRange(window.range_start, window.range_end > window.range_start
+                                                              ? window.range_end
+                                                              : window.range_start + 1);
+      }
+    } else if (window.range_start > 0 && window.range_end > window.range_start) {
+      day_chart = stats.daysInRange(window.range_start, window.range_end);
+    } else {
+      day_chart = stats.lastNDays(7);
     }
-    dashboard_->setStatistics(last ? &*last : nullptr, week, recent);
+
+    dashboard_->setStatistics(window, day_chart);
   } catch (const std::exception& ex) {
     tray_->showMessage("focusGaze", QString("Stats error: %1").arg(ex.what()),
                        QSystemTrayIcon::Warning, 4000);
@@ -777,8 +802,7 @@ void TrayController::ensureDashboard() {
           &TrayController::saveSettingsFromDashboard);
   connect(dashboard_, &DashboardWindow::resetSettingsRequested, this,
           &TrayController::resetSettingsFromDashboard);
-  connect(dashboard_, &DashboardWindow::exportCsvRequested, this, &TrayController::exportStatsCsv);
-  connect(dashboard_, &DashboardWindow::exportJsonRequested, this, &TrayController::exportStatsJson);
+  // CSV/JSON export remains available from the tray menu (exportStatsCsv / exportStatsJson).
   connect(dashboard_, &DashboardWindow::testAlarmSoundRequested, this, &TrayController::testAlarmSound);
   populateCameraDevices();
   dashboard_->loadSettingsForm(settings_);
