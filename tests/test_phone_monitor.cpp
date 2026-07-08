@@ -52,3 +52,29 @@ TEST_CASE("PhoneMonitor ignores phone when focus off", "[phone]") {
   }
   REQUIRE_FALSE(alarms.isReasonActive(AlarmReason::PhoneWindow));
 }
+
+TEST_CASE("PhoneMonitor counts distinct phone use bouts in a session", "[phone]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+  Settings s = Settings::defaults();
+  s.phone_threshold_seconds = 100; // high so we only care about use counts
+  s.phone_window_seconds = 1000;
+  FocusSessionManager focus(db, s, [] { return focusgaze::EpochSeconds{0}; });
+  AlarmController alarms;
+  PhoneMonitor phone(db, focus, alarms, s);
+  REQUIRE(focus.turnOn());
+
+  // Bout 1
+  phone.sample(1, true);
+  phone.sample(2, true);
+  phone.sample(3, false); // end bout → logged
+  // Bout 2
+  phone.sample(10, true);
+  phone.sample(11, true);
+
+  auto st = phone.status(11);
+  REQUIRE(st.phone_use_count == 2);
+  REQUIRE(st.phone_intervals_logged == 1); // second bout still open
+  REQUIRE(st.phone_visible == true);
+}

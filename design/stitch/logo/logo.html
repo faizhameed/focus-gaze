@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>focusGaze — Logo (Stitch design system)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            background: "#0B0F14",
+            surface: "#141A22",
+            border: "#243041",
+            primary: "#2DD4BF",
+            violet: "#8B5CF6",
+            on: "#F1F5F9",
+            muted: "#94A3B8",
+          },
+          fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; background: #0B0F14; color: #F1F5F9; }
+  </style>
+</head>
+<body class="min-h-screen p-10">
+  <header class="max-w-4xl mx-auto mb-10">
+    <p class="text-primary text-xs font-bold tracking-widest uppercase mb-2">Stitch design system · brand</p>
+    <h1 class="text-3xl font-bold text-on">focusGaze logo</h1>
+    <p class="text-muted mt-2 text-sm max-w-2xl">
+      Gaze / focus mark for the Mac tray app and Chrome extension.
+      Tokens match the product UI (teal primary, dark surface, optional violet ambient).
+      <strong class="text-on/80">Note:</strong> Google Stitch MCP was unavailable when this sheet was authored;
+      assets follow the same Stitch project tokens used for dashboard/stats screens.
+    </p>
+  </header>
+
+  <main class="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
+    <section class="bg-surface border border-border rounded-2xl p-6">
+      <h2 class="text-xs font-bold text-muted tracking-widest uppercase mb-4">App icon (primary)</h2>
+      <div class="flex justify-center bg-background rounded-xl p-8 border border-border">
+        <img src="logo.svg" alt="focusGaze app icon" class="w-48 h-48"/>
+      </div>
+      <p class="text-muted text-xs mt-4">File: <code class="text-primary">logo.svg</code> · also <code class="text-primary">logo_app_icon_concept.jpg</code></p>
+    </section>
+
+    <section class="bg-surface border border-border rounded-2xl p-6">
+      <h2 class="text-xs font-bold text-muted tracking-widest uppercase mb-4">Circular mark / tray</h2>
+      <div class="flex justify-center bg-background rounded-xl p-8 border border-border">
+        <img src="logo-mark.svg" alt="focusGaze mark" class="w-48 h-48"/>
+      </div>
+      <p class="text-muted text-xs mt-4">File: <code class="text-primary">logo-mark.svg</code> · also <code class="text-primary">logo_circular_mark_concept.jpg</code></p>
+    </section>
+
+    <section class="md:col-span-2 bg-surface border border-border rounded-2xl p-6">
+      <h2 class="text-xs font-bold text-muted tracking-widest uppercase mb-4">Size previews</h2>
+      <div class="flex flex-wrap items-end gap-6">
+        <div class="text-center"><img src="logo.svg" class="w-32 h-32 mx-auto" alt=""/><p class="text-[10px] text-muted mt-2">128</p></div>
+        <div class="text-center"><img src="logo.svg" class="w-16 h-16 mx-auto" alt=""/><p class="text-[10px] text-muted mt-2">64</p></div>
+        <div class="text-center"><img src="logo.svg" class="w-8 h-8 mx-auto" alt=""/><p class="text-[10px] text-muted mt-2">32</p></div>
+        <div class="text-center"><img src="logo-mark.svg" class="w-8 h-8 mx-auto rounded-full" alt=""/><p class="text-[10px] text-muted mt-2">tray 32</p></div>
+        <div class="text-center"><img src="logo-mark.svg" class="w-4 h-4 mx-auto rounded-full" alt=""/><p class="text-[10px] text-muted mt-2">16</p></div>
+      </div>
+    </section>
+
+    <section class="md:col-span-2 bg-surface border border-border rounded-2xl p-6">
+      <h2 class="text-xs font-bold text-muted tracking-widest uppercase mb-3">Tokens</h2>
+      <div class="flex flex-wrap gap-3 text-xs">
+        <span class="px-3 py-2 rounded-lg border border-border bg-background"><span class="inline-block w-3 h-3 rounded-sm bg-[#0B0F14] border border-border mr-2 align-middle"></span>#0B0F14 background</span>
+        <span class="px-3 py-2 rounded-lg border border-border bg-background"><span class="inline-block w-3 h-3 rounded-sm bg-[#141A22] border border-border mr-2 align-middle"></span>#141A22 surface</span>
+        <span class="px-3 py-2 rounded-lg border border-border bg-background"><span class="inline-block w-3 h-3 rounded-sm bg-[#2DD4BF] mr-2 align-middle"></span>#2DD4BF primary</span>
+        <span class="px-3 py-2 rounded-lg border border-border bg-background"><span class="inline-block w-3 h-3 rounded-sm bg-[#8B5CF6] mr-2 align-middle"></span>#8B5CF6 violet</span>
+        <span class="px-3 py-2 rounded-lg border border-border bg-background"><span class="inline-block w-3 h-3 rounded-sm bg-[#F1F5F9] mr-2 align-middle"></span>#F1F5F9 text</span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

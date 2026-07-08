@@ -37,6 +37,9 @@ std::vector<std::string> stringVectorFromJson(const json& j) {
 Settings Settings::defaults() {
   Settings s;
   s.blocklist = seedBlocklistDomains();
+  // Explicit product policy (IMPLEMENTATION.md §6.4): 60s / 30 min.
+  s.phone_threshold_seconds = 60;
+  s.phone_window_seconds = 30 * 60;
   return s;
 }
 
@@ -47,12 +50,16 @@ std::string Settings::toJsonString(int indent) const {
   j["phone_threshold_seconds"] = phone_threshold_seconds;
   j["phone_window_seconds"] = phone_window_seconds;
   j["alarm_sound"] = alarm_sound;
+  j["alarm_sound_enabled"] = alarm_sound_enabled;
   j["privacy_redact"] = privacy_redact;
   j["resume_focus_on_launch"] = resume_focus_on_launch;
   j["camera_monitoring_enabled"] = camera_monitoring_enabled;
   j["camera_device_index"] = camera_device_index;
   j["bridge_port"] = bridge_port;
   j["bridge_token"] = bridge_token;
+  j["onboarding_completed"] = onboarding_completed;
+  j["open_at_login"] = open_at_login;
+  j["native_messaging_installed"] = native_messaging_installed;
   return j.dump(indent);
 }
 
@@ -83,6 +90,9 @@ bool Settings::fromJsonString(const std::string& text) {
   if (j.contains("alarm_sound") && j["alarm_sound"].is_string()) {
     next.alarm_sound = j["alarm_sound"].get<std::string>();
   }
+  if (j.contains("alarm_sound_enabled") && j["alarm_sound_enabled"].is_boolean()) {
+    next.alarm_sound_enabled = j["alarm_sound_enabled"].get<bool>();
+  }
   if (j.contains("privacy_redact") && j["privacy_redact"].is_boolean()) {
     next.privacy_redact = j["privacy_redact"].get<bool>();
   }
@@ -103,6 +113,15 @@ bool Settings::fromJsonString(const std::string& text) {
   }
   if (j.contains("bridge_token") && j["bridge_token"].is_string()) {
     next.bridge_token = j["bridge_token"].get<std::string>();
+  }
+  if (j.contains("onboarding_completed") && j["onboarding_completed"].is_boolean()) {
+    next.onboarding_completed = j["onboarding_completed"].get<bool>();
+  }
+  if (j.contains("open_at_login") && j["open_at_login"].is_boolean()) {
+    next.open_at_login = j["open_at_login"].get<bool>();
+  }
+  if (j.contains("native_messaging_installed") && j["native_messaging_installed"].is_boolean()) {
+    next.native_messaging_installed = j["native_messaging_installed"].get<bool>();
   }
 
   // Basic validation
@@ -156,11 +175,6 @@ Settings loadOrCreateSettings() {
   }
   // Authoritative blocklist is blocklist.txt (auto-seeded if missing; never overwritten).
   settings.blocklist = loadOrCreateBlocklist();
-  // Temporary product default while tuning vision (overrides older settings.json values).
-  if (settings.phone_threshold_seconds != 5) {
-    settings.phone_threshold_seconds = 5;
-    dirty = true;
-  }
   if (settings.bridge_token.empty()) {
     settings.bridge_token = generateBridgeToken();
     dirty = true;

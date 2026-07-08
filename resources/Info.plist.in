@@ -12,19 +12,40 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
+	<key>CFBundleDisplayName</key>
+	<string>focusGaze</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+	<string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
 	<key>CFBundleVersion</key>
 	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>11.0</string>
+	<string>12.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<!-- Menu-bar / tray primary UX: keep a dock icon for accessibility but allow hide later. -->
+	<key>LSUIElement</key>
+	<false/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>focusGaze uses the camera to detect phone distractions while Focus Mode is on. Video is processed on-device and not uploaded.</string>
+	<string>focusGaze uses the camera to detect phone distractions while Focus Mode is on. Video is processed on-device and is not uploaded.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>focusGaze does not use the microphone.</string>
+	<key>NSUserNotificationAlertStyle</key>
+	<string>alert</string>
+	<!-- Local network bridge for Chrome extension pairing (macOS 14+ local network prompts). -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>focusGaze talks to its Chrome extension on this Mac over localhost only.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

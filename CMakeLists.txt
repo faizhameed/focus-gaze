@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(focusGaze VERSION 0.5.0 LANGUAGES CXX)
+project(focusGaze VERSION 0.6.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,22 +52,39 @@ set(FOCUSGAZE_CORE_SOURCES
   src/core/AlarmController.cpp src/core/BrowserMonitor.cpp
   src/core/PhonePresenceTracker.cpp src/core/PhoneMonitor.cpp
   src/core/AlarmPresenter.cpp src/core/ProductivityStats.cpp
+  src/core/NativeMessaging.cpp
+  src/ui/StatsViewModel.cpp
   src/vision/VisionLoop.cpp src/vision/CameraSource.cpp src/vision/CameraPreview.cpp
   src/vision/YoloDetector.cpp
   src/bridge/HttpBrowserBridge.cpp
 )
 if(APPLE)
-  list(APPEND FOCUSGAZE_CORE_SOURCES src/adapters/macos/PlatformPaths.cpp)
+  list(APPEND FOCUSGAZE_CORE_SOURCES
+    src/adapters/macos/PlatformPaths.cpp
+    src/adapters/macos/PlatformSessionState.cpp
+    src/adapters/macos/LoginItem.cpp)
 elseif(WIN32)
-  list(APPEND FOCUSGAZE_CORE_SOURCES src/adapters/windows/PlatformPaths.cpp)
+  list(APPEND FOCUSGAZE_CORE_SOURCES
+    src/adapters/windows/PlatformPaths.cpp
+    src/adapters/windows/PlatformSessionState.cpp
+    src/adapters/windows/LoginItem.cpp)
 else()
-  list(APPEND FOCUSGAZE_CORE_SOURCES src/adapters/macos/PlatformPaths.cpp)
+  list(APPEND FOCUSGAZE_CORE_SOURCES
+    src/adapters/macos/PlatformPaths.cpp
+    src/adapters/macos/PlatformSessionState.cpp
+    src/adapters/macos/LoginItem.cpp)
 endif()
 
 add_library(focusgaze_core STATIC ${FOCUSGAZE_CORE_SOURCES})
 target_include_directories(focusgaze_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${httplib_SOURCE_DIR})
 target_link_libraries(focusgaze_core PUBLIC nlohmann_json::nlohmann_json SQLite3::SQLite3 Threads::Threads)
 target_compile_definitions(focusgaze_core PUBLIC FOCUSGAZE_VERSION="${PROJECT_VERSION}")
+if(APPLE)
+  # CGSessionCopyCurrentDictionary for lock-screen detection.
+  target_link_libraries(focusgaze_core PUBLIC
+    "-framework CoreFoundation"
+    "-framework ApplicationServices")
+endif()
 
 if(FOCUSGAZE_HAS_OPENCV)
   target_include_directories(focusgaze_core PUBLIC ${OpenCV_INCLUDE_DIRS})
@@ -98,6 +115,11 @@ if(APPLE AND FOCUSGAZE_HAS_YOLO)
   set_target_properties(focusgaze PROPERTIES BUILD_RPATH "/opt/homebrew/opt/onnxruntime/lib")
 endif()
 
+# Phase 5: Chrome Native Messaging host binary (Chrome launches with no argv).
+add_executable(focusgaze_nm_host src/app/native_messaging_host_main.cpp)
+target_link_libraries(focusgaze_nm_host PRIVATE focusgaze_core)
+set_target_properties(focusgaze_nm_host PROPERTIES OUTPUT_NAME "focusgaze-nm-host")
+
 if(FOCUSGAZE_BUILD_TESTS)
   enable_testing()
   FetchContent_Declare(Catch2 GIT_REPOSITORY https://github.com/catchorg/Catch2.git GIT_TAG v3.5.4 GIT_SHALLOW TRUE)
@@ -109,6 +131,9 @@ if(FOCUSGAZE_BUILD_TESTS)
     tests/test_alarm_controller.cpp tests/test_browser_monitor.cpp tests/test_http_bridge.cpp
     tests/test_phone_presence.cpp tests/test_phone_monitor.cpp tests/test_productivity_stats.cpp
     tests/test_yolo_detector.cpp tests/test_camera_source.cpp
+    tests/test_focus_segments.cpp
+    tests/test_native_messaging.cpp
+    tests/test_stats_view_model.cpp
   )
   target_link_libraries(focusgaze_tests PRIVATE focusgaze_core Catch2::Catch2WithMain)
   if(APPLE AND FOCUSGAZE_HAS_YOLO)
@@ -116,7 +141,8 @@ if(FOCUSGAZE_BUILD_TESTS)
   endif()
   # Model path for tests run from build/
   target_compile_definitions(focusgaze_tests PRIVATE
-    FOCUSGAZE_TEST_MODEL_PATH="${CMAKE_SOURCE_DIR}/models/yolo11n.onnx")
+    FOCUSGAZE_TEST_MODEL_PATH="${CMAKE_SOURCE_DIR}/models/yolo11n.onnx"
+    FOCUSGAZE_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
   include(CTest)
   include(Catch)
   catch_discover_tests(focusgaze_tests)
@@ -138,6 +164,8 @@ if(FOCUSGAZE_BUILD_GUI)
       src/ui/CameraWindow.hpp
       src/ui/DashboardWindow.cpp
       src/ui/DashboardWindow.hpp
+      src/ui/OnboardingWizard.cpp
+      src/ui/OnboardingWizard.hpp
     )
     target_link_libraries(focusGaze_gui PRIVATE focusgaze_core Qt6::Widgets)
     target_compile_definitions(focusGaze_gui PRIVATE FOCUSGAZE_GUI=1)
@@ -152,16 +180,25 @@ if(FOCUSGAZE_BUILD_GUI)
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.focusgaze.app"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_ICON_FILE "AppIcon"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/resources/Info.plist.in"
       )
+      # Bundle icon into Resources/
+      set_source_files_properties("${CMAKE_SOURCE_DIR}/resources/AppIcon.icns"
+        PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+      target_sources(focusGaze_gui PRIVATE "${CMAKE_SOURCE_DIR}/resources/AppIcon.icns")
     endif()
-    # Convenience: copy YOLO model next to bundle for first run (dev)
+    # Phase 5 bundle payload: YOLO model + Native Messaging host binary.
+    add_dependencies(focusGaze_gui focusgaze_nm_host)
     add_custom_command(TARGET focusGaze_gui POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:focusGaze_gui>/../Resources/models"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/models/yolo11n.onnx"
         "$<TARGET_FILE_DIR:focusGaze_gui>/../Resources/models/yolo11n.onnx"
-      COMMENT "Copy yolo11n.onnx into app Resources (if present)"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:focusgaze_nm_host>"
+        "$<TARGET_FILE_DIR:focusGaze_gui>/focusgaze-nm-host"
+      COMMENT "Bundle yolo11n.onnx + focusgaze-nm-host into focusGaze.app"
       VERBATIM
     )
   else()

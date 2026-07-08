@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>focusGaze - Onboarding: Permissions</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0B0F14;
+            color: #dde4e1;
+            overflow: hidden;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Custom scrollbar for subtle macOS feel */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #243041;
+            border-radius: 10px;
+        }
+        /* Window shadow for macOS feel */
+        .macos-window {
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary": "#253142",
+                        "on-tertiary": "#4b2800",
+                        "surface-tint": "#3cddc7",
+                        "on-secondary-container": "#a9b6cb",
+                        "on-primary-fixed-variant": "#005047",
+                        "surface-dim": "#0e1513",
+                        "primary-fixed": "#62fae3",
+                        "on-tertiary-container": "#744000",
+                        "on-background": "#dde4e1",
+                        "surface-container-high": "#242b2a",
+                        "on-surface": "#dde4e1",
+                        "error": "#ffb4ab",
+                        "secondary-fixed": "#d7e3fa",
+                        "inverse-primary": "#006b5f",
+                        "surface-container-highest": "#2f3634",
+                        "secondary-fixed-dim": "#bbc7dd",
+                        "background": "#0e1513",
+                        "inverse-on-surface": "#2b3230",
+                        "surface-bright": "#333b39",
+                        "primary": "#57f1db",
+                        "on-error-container": "#ffdad6",
+                        "surface": "#0e1513",
+                        "inverse-surface": "#dde4e1",
+                        "on-primary-container": "#00574d",
+                        "surface-variant": "#2f3634",
+                        "surface-container": "#1a211f",
+                        "outline-variant": "#3c4a46",
+                        "tertiary-container": "#ffac5a",
+                        "on-secondary-fixed-variant": "#3b4759",
+                        "tertiary": "#ffd1aa",
+                        "error-container": "#93000a",
+                        "secondary-container": "#3b4759",
+                        "secondary": "#bbc7dd",
+                        "primary-container": "#2dd4bf",
+                        "surface-container-low": "#161d1b",
+                        "tertiary-fixed-dim": "#ffb875",
+                        "on-secondary-fixed": "#101c2c",
+                        "on-primary-fixed": "#00201c",
+                        "on-tertiary-fixed-variant": "#6b3b00",
+                        "surface-container-lowest": "#09100e",
+                        "outline": "#859490",
+                        "on-error": "#690005",
+                        "primary-fixed-dim": "#3cddc7",
+                        "on-surface-variant": "#bacac5",
+                        "on-primary": "#003731",
+                        "tertiary-fixed": "#ffdcc0",
+                        "on-tertiary-fixed": "#2d1600"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "8px",
+                        "xl": "64px",
+                        "gutter": "24px",
+                        "md": "24px",
+                        "container-max": "640px",
+                        "lg": "40px",
+                        "xs": "4px",
+                        "sm": "12px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["40px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "label-md": ["14px", {"lineHeight": "1.2", "letterSpacing": "0.01em", "fontWeight": "500"}],
+                        "headline-md": ["32px", {"lineHeight": "1.3", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "label-sm": ["12px", {"lineHeight": "1.2", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "headline-sm": ["24px", {"lineHeight": "1.4", "fontWeight": "500"}],
+                        "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background flex items-center justify-center min-h-screen p-lg">
+<!-- WebGL Background Atmosphere -->
+
+<!-- macOS Window Mockup -->
+<main class="macos-window flex w-full max-w-[1024px] h-[680px] bg-background border border-outline-variant rounded-xl overflow-hidden relative z-10">
+<!-- SideNavBar -->
+<aside class="flex flex-col h-full p-md gap-base bg-surface-container-low dark:bg-surface-container-low border-r border-outline-variant w-64 shrink-0">
+<!-- Window Controls (Mockup) -->
+<div class="flex gap-2 mb-md">
+<div class="w-3 h-3 rounded-full bg-error/20 border border-error/40"></div>
+<div class="w-3 h-3 rounded-full bg-tertiary-container/20 border border-tertiary-container/40"></div>
+<div class="w-3 h-3 rounded-full bg-primary/20 border border-primary/40"></div>
+</div>
+<div class="mb-xl">
+<h1 class="font-headline-sm text-headline-sm text-primary mb-xs">Onboarding</h1>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Step 2 of 4</p>
+</div>
+<nav class="flex-grow space-y-1">
+<!-- Welcome -->
+<button class="flex items-center gap-sm w-full px-sm py-base text-on-surface-variant hover:text-on-surface font-label-md text-label-md hover:bg-surface-container-highest transition-all rounded-lg active:scale-98">
+<span class="material-symbols-outlined" data-icon="start">start</span>
+<span>Welcome</span>
+</button>
+<!-- Permissions (ACTIVE) -->
+<button class="flex items-center gap-sm w-full px-sm py-base text-primary font-bold bg-secondary-container rounded-lg transition-all active:scale-98">
+<span class="material-symbols-outlined" data-icon="lock" style="font-variation-settings: 'FILL' 1;">lock</span>
+<span>Permissions</span>
+</button>
+<!-- Browser -->
+<button class="flex items-center gap-sm w-full px-sm py-base text-on-surface-variant hover:text-on-surface font-label-md text-label-md hover:bg-surface-container-highest transition-all rounded-lg active:scale-98">
+<span class="material-symbols-outlined" data-icon="browser_updated">browser_updated</span>
+<span>Browser</span>
+</button>
+<!-- Connect -->
+<button class="flex items-center gap-sm w-full px-sm py-base text-on-surface-variant hover:text-on-surface font-label-md text-label-md hover:bg-surface-container-highest transition-all rounded-lg active:scale-98">
+<span class="material-symbols-outlined" data-icon="link">link</span>
+<span>Connect</span>
+</button>
+</nav>
+<div class="mt-auto flex items-center gap-sm pt-md border-t border-outline-variant">
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A professional close-up of a diverse male professional in a dark studio setting, looking directly at the camera with a calm and focused expression. The lighting is low-key, emphasizing the sharp lines of his face and the premium, dark aesthetic of the focusGaze brand. He wears a high-quality dark grey turtleneck, blending into the sophisticated background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBN-fJXTjYVyBvsZZIlZQvBVTaJxIm-MgKWhThcLoEuK8qcKlkEQb5GPm2tVjuuHbUV2UdUPgrKggW0A1JKwk7GRgFtkIva0M7Dw3_aJFB_BWw8Qa0OkvxjHebJQurTi0h0qp1oOzXTs5gcLx7EaWXDZH-4U6j46tyR0IeXD4Vfs5f7nvZ73CRBSG7tuuhqf_BGFI_lzQqLR3uYHyC_M8upFkC6jHnC98xntMKef36p94KZvh-s_BgjV68cWbVwXjpOAsCK8WwRlSo"/>
+</div>
+<div>
+<p class="font-label-sm text-label-sm font-bold text-on-surface">Guest User</p>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-wider">Setup Mode</p>
+</div>
+</div>
+</aside>
+<!-- Main Workspace -->
+<section class="flex-grow flex flex-col min-w-0">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-md py-sm border-b border-outline-variant bg-background">
+<div class="flex items-center gap-sm">
+<span class="font-headline-sm text-headline-sm font-bold text-primary">focusGaze</span>
+</div>
+<div class="flex items-center gap-sm">
+<button class="w-8 h-8 flex items-center justify-center text-on-surface-variant hover:text-primary transition-colors scale-95 duration-200">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center text-on-surface-variant hover:text-primary transition-colors scale-95 duration-200">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+</header>
+<!-- Onboarding Content Canvas -->
+<div class="flex-grow overflow-y-auto flex flex-col items-center justify-center p-xl">
+<div class="w-full max-w-container-max space-y-xl">
+<!-- Header -->
+<div class="text-center space-y-sm">
+<h2 class="font-headline-md text-headline-md text-on-surface">Allow camera access</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Optional phone detection to minimize distractions.</p>
+</div>
+<!-- Permissions Card -->
+<div class="bg-surface-container-low border border-outline-variant rounded-xl p-lg space-y-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-md">
+<div class="w-12 h-12 bg-secondary-container rounded-lg flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-3xl" data-icon="videocam">videocam</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-[18px] text-on-surface">Camera Access</h3>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Used to monitor physical presence</p>
+</div>
+</div>
+<span class="px-sm py-1 bg-tertiary-container/10 border border-tertiary-container/30 text-tertiary text-[11px] font-bold uppercase tracking-widest rounded-full">
+                                Required for phone alerts
+                            </span>
+</div>
+<div class="p-md bg-background rounded-lg border border-outline-variant/50">
+<p class="font-body-md text-body-md text-on-surface-variant italic">
+                                "focusGaze works best with macOS Continuity Camera or your built-in FaceTime HD camera."
+                            </p>
+</div>
+<div class="flex items-center gap-sm text-primary-container/80 text-sm">
+<span class="material-symbols-outlined text-[18px]" data-icon="verified_user">verified_user</span>
+<span class="font-label-md">Privacy First: Video is processed locally on your device.</span>
+</div>
+</div>
+<!-- Visual Context Image -->
+<div class="h-48 rounded-xl overflow-hidden border border-outline-variant group">
+<img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" data-alt="A clean and modern high-end home office workspace featuring a high-resolution monitor displaying the focusGaze interface. The room is softly lit with cool teal accents and a warm desk lamp. A sleek smartphone is mounted on top of the monitor using a Continuity Camera mount, signifying modern macOS integration. The atmosphere is quiet, professional, and conducive to deep concentration." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFoLvk9bQuLVjFnfHa6MJy3EdrAkjHYztviGEIbA5cm_r8iANhpyCkwxomqnzVv_OcFkoI0gm1x4b8pjvZGpzrBzABnQes637GJtZfToDSEruXMQ-ywnsSqyNEXRdYAx7ziHz78ecUnnDY5yN4cBI6-mQhQHhwxr2NQbTKvGw261K_VTsmyCW-262jvY7bqgODzNoi1UwCeqqg7NfH6br_9NsW1Ir3C_Fuxv4UZkF4lj54G3D1dFFMum9wKbKHNvZOiglZ0UypIpY"/>
+</div>
+<!-- Actions -->
+<div class="flex flex-col gap-md pt-base">
+<button class="w-full h-12 bg-primary-container text-on-primary-container font-bold rounded-lg hover:brightness-110 active:scale-[0.99] transition-all flex items-center justify-center gap-base">
+<span class="material-symbols-outlined text-[20px]" data-icon="open_in_new">open_in_new</span>
+                            Open System Settings
+                        </button>
+<div class="flex items-center gap-md">
+<button class="flex-1 h-12 border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container-highest active:scale-[0.99] transition-all">
+                                Continue
+                            </button>
+<button class="px-md h-12 text-on-surface-variant hover:text-on-surface font-semibold transition-colors flex items-center gap-xs">
+<span class="material-symbols-outlined text-[18px]" data-icon="arrow_back">arrow_back</span>
+                                Back
+                            </button>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer -->
+<footer class="flex justify-between items-center w-full px-lg py-md border-t border-outline-variant bg-background">
+<div class="font-label-md text-label-md text-on-surface">focusGaze</div>
+<div class="flex items-center gap-md">
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors underline decoration-transparent hover:decoration-primary" href="#">Privacy</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors underline decoration-transparent hover:decoration-primary" href="#">Terms</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors underline decoration-transparent hover:decoration-primary" href="#">Support</a>
+</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant opacity-80">© 2024 focusGaze. Secure &amp; Private.</div>
+</footer>
+</section>
+</main>
+<script>
+        // Subtle micro-interaction for the camera card
+        const card = document.querySelector('.bg-surface-container-low');
+        card.addEventListener('mousemove', (e) => {
+            const rect = card.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            card.style.setProperty('--mouse-x', `${x}px`);
+            card.style.setProperty('--mouse-y', `${y}px`);
+        });
+
+        // Add a subtle spotlight effect to the card on hover via CSS
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .bg-surface-container-low:hover {
+                background: radial-gradient(circle at var(--mouse-x) var(--mouse-y), rgba(45, 212, 191, 0.05) 0%, rgba(22, 29, 27, 1) 100%);
+                border-color: rgba(45, 212, 191, 0.2);
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body></html>

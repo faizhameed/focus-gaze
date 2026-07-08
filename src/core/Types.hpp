@@ -17,6 +17,20 @@ struct SessionRecord {
   bool focus_enabled{true};
 };
 
+/// Contiguous wall-clock span when focus time is actively counted (unlocked, awake, app alive).
+/// Pauses for lock / sleep / process death leave gaps between segments.
+struct FocusSegmentRecord {
+  std::int64_t id{0};
+  std::int64_t session_id{0};
+  EpochSeconds started_at{0};
+  /// Set when the segment stops counting (pause, Focus OFF, process exit).
+  std::optional<EpochSeconds> ended_at;
+  /// Heartbeat while the segment is open; used to close orphans after crash/sleep.
+  std::optional<EpochSeconds> last_seen_at;
+  /// Why the segment ended (lock, sleep_gap, focus_off, process_exit, orphan, …).
+  std::string end_reason;
+};
+
 enum class UrlEventType {
   Activated,
   Updated,

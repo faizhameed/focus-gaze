@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>focusGaze - Settings</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+                  "on-surface": "#e0e2ea",
+                  "outline-variant": "#3c4a46",
+                  "on-tertiary-fixed-variant": "#6b3b00",
+                  "on-primary": "#003731",
+                  "on-tertiary-container": "#744000",
+                  "on-secondary-container": "#8bbfb5",
+                  "error-container": "#93000a",
+                  "tertiary-fixed": "#ffdcc0",
+                  "secondary-fixed-dim": "#9cd1c6",
+                  "inverse-primary": "#006b5f",
+                  "on-error-container": "#ffdad6",
+                  "surface-bright": "#36393f",
+                  "primary-fixed": "#62fae3",
+                  "on-secondary-fixed": "#00201c",
+                  "on-secondary": "#003731",
+                  "surface-container-highest": "#31353b",
+                  "on-tertiary-fixed": "#2d1600",
+                  "error": "#ffb4ab",
+                  "secondary": "#9cd1c6",
+                  "on-secondary-fixed-variant": "#1a4f47",
+                  "on-background": "#e0e2ea",
+                  "surface-container-low": "#181c21",
+                  "surface-container-high": "#262a30",
+                  "surface-dim": "#101419",
+                  "on-surface-variant": "#bacac5",
+                  "on-primary-fixed": "#00201c",
+                  "surface-container-lowest": "#0a0e13",
+                  "primary-fixed-dim": "#3cddc7",
+                  "primary-container": "#2dd4bf",
+                  "surface-variant": "#31353b",
+                  "on-tertiary": "#4b2800",
+                  "on-primary-fixed-variant": "#005047",
+                  "background": "#101419",
+                  "tertiary-fixed-dim": "#ffb875",
+                  "outline": "#859490",
+                  "surface": "#101419",
+                  "surface-tint": "#3cddc7",
+                  "on-error": "#690005",
+                  "on-primary-container": "#00574d",
+                  "tertiary-container": "#ffac5a",
+                  "surface-container": "#1c2025",
+                  "tertiary": "#ffd1aa",
+                  "secondary-container": "#1a4f47",
+                  "inverse-on-surface": "#2d3136",
+                  "inverse-surface": "#e0e2ea",
+                  "secondary-fixed": "#b8ede2",
+                  "primary": "#57f1db"
+          },
+          "borderRadius": {
+                  "DEFAULT": "0.25rem",
+                  "lg": "0.5rem",
+                  "xl": "0.75rem",
+                  "full": "9999px"
+          },
+          "spacing": {
+                  "xs": "4px",
+                  "xl": "40px",
+                  "lg": "24px",
+                  "gutter": "20px",
+                  "margin": "24px",
+                  "sm": "8px",
+                  "base": "4px",
+                  "md": "16px"
+          },
+          "fontFamily": {
+                  "h1-mobile": ["Inter"],
+                  "body-lg": ["Inter"],
+                  "h2": ["Inter"],
+                  "h1": ["Inter"],
+                  "body-md": ["Inter"],
+                  "label-caps": ["Inter"],
+                  "code": ["JetBrains Mono"]
+          },
+          "fontSize": {
+                  "h1-mobile": ["24px", {"lineHeight": "1.2", "fontWeight": "700"}],
+                  "body-lg": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                  "h2": ["24px", {"lineHeight": "1.3", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                  "h1": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                  "body-md": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                  "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                  "code": ["13px", {"lineHeight": "1.5", "fontWeight": "400"}]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      background-color: #0B0F14;
+      color: #e0e2ea;
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0B0F14; }
+    ::-webkit-scrollbar-thumb { background: #2D3239; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3c4a46; }
+    
+    .input-base {
+      background-color: #15191E;
+      border: 1px solid #2D3239;
+      color: #e0e2ea;
+      border-radius: 0.25rem;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .input-base:focus {
+      outline: none;
+      border-color: #2dd4bf;
+      box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.2);
+    }
+    .toggle-checkbox:checked {
+      background-color: #2dd4bf;
+      border-color: #2dd4bf;
+    }
+  </style>
+</head>
+<body class="flex items-stretch w-[720px] h-[560px] mx-auto border border-outline-variant shadow-2xl">
+<!-- SideNavBar -->
+<aside class="bg-surface-container-low flex flex-col h-full w-64 flex-shrink-0 border-r border-outline-variant p-lg">
+<div class="flex items-center gap-md mb-xl">
+<img alt="focusGaze logo" class="w-8 h-8 object-contain" src="https://lh3.googleusercontent.com/aida/AP1WRLuk3XH0vKlhqcJ_lDCT18qm3Bc1-w1RHbTs-o_egpkNx2XbR2LBTGRs_Z-yElUHZ4dLqiDBGTDSN5dwnN6UAQtFNS2Xx9CB8ShGQmJ-KLGUsu97VUoP2ewDg2L4WKuzubPraa_sEd706kkQhq8eDqZivLozGH5vBIdIwxPS4jwlpsd1aFWSW7mAwIC2nO8u7YjkC6w8CwuUcrZRY3c1nNcBirhpTE87hKGhOfSiZTBdyRKV0xIbvuRrPmA"/>
+<div>
+<h1 class="font-h2 text-h2 font-bold text-primary tracking-tight leading-none">focusGaze</h1>
+<p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Technical Efficiency</p>
+</div>
+</div>
+<nav class="flex-grow space-y-xs">
+<!-- Nav Items -->
+<a class="flex items-center gap-md p-md rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-md p-md rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-body-md text-body-md">Status</span>
+</a>
+<a class="flex items-center gap-md p-md rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-body-md text-body-md">Last Session</span>
+</a>
+<!-- Active Item -->
+<a class="flex items-center gap-md p-md rounded-lg text-primary font-bold border-r-2 border-primary bg-secondary-container/10 transition-opacity duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+</nav>
+<div class="mt-auto space-y-xs pt-lg border-t border-outline-variant/30">
+<a class="flex items-center gap-md p-md rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="font-body-md text-body-md">Support</span>
+</a>
+<a class="flex items-center gap-md p-md rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+<span class="font-body-md text-body-md">Account</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-grow flex flex-col bg-[#0B0F14] overflow-hidden">
+<!-- Header -->
+<header class="h-16 flex items-center justify-between px-lg border-b border-outline-variant flex-shrink-0">
+<h2 class="font-h2 text-h2 text-on-surface">Settings</h2>
+<div class="flex items-center gap-md">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary transition-colors" data-icon="notifications">notifications</span>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary transition-colors" data-icon="dark_mode">dark_mode</span>
+</div>
+</header>
+<!-- Scrollable Form Area -->
+<div class="flex-grow overflow-y-auto p-lg custom-scrollbar">
+<form class="space-y-xl max-w-2xl mx-auto">
+<!-- Focus Section -->
+<section class="space-y-md">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant uppercase">Focus</h3>
+<div class="flex items-center justify-between p-md bg-[#15191E] border border-[#2D3239] rounded-lg">
+<div>
+<p class="font-body-md text-body-md text-on-surface">Resume on launch</p>
+<p class="text-[11px] text-on-surface-variant">Automatically start the last active session when app opens.</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-[#2D3239] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+</section>
+<!-- Phone Detection -->
+<section class="space-y-md">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant uppercase">Phone Detection</h3>
+<div class="grid grid-cols-2 gap-lg">
+<div class="space-y-xs">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Threshold seconds</label>
+<input class="input-base w-full p-md text-body-md" type="number" value="60"/>
+</div>
+<div class="space-y-xs">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Window minutes</label>
+<input class="input-base w-full p-md text-body-md" type="number" value="30"/>
+</div>
+</div>
+<p class="text-[11px] text-on-surface-variant flex items-center gap-xs">
+<span class="material-symbols-outlined text-[14px]" data-icon="info">info</span>
+            Sensitivity note: Higher threshold reduces false positives but adds lag.
+          </p>
+</section>
+<!-- Privacy Section -->
+<section class="space-y-md">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant uppercase">Privacy</h3>
+<div class="flex items-center justify-between p-md bg-[#15191E] border border-[#2D3239] rounded-lg">
+<div>
+<p class="font-body-md text-body-md text-on-surface">Redact URL queries</p>
+<p class="text-[11px] text-on-surface-variant">Strips tracking IDs and personal data from logged URLs.</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-[#2D3239] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+</section>
+<!-- Bridge Section -->
+<section class="space-y-md">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant uppercase">Bridge</h3>
+<div class="grid grid-cols-3 gap-md">
+<div class="col-span-1 space-y-xs">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Port</label>
+<input class="input-base w-full p-md font-code text-code" type="text" value="8080"/>
+</div>
+<div class="col-span-2 space-y-xs">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Token</label>
+<div class="relative">
+<input class="input-base w-full p-md pr-12 font-code text-code bg-surface-container-lowest" readonly="" type="password" value="••••••••••••••••"/>
+<button class="absolute right-2 top-1/2 -translate-y-1/2 p-sm text-on-surface-variant hover:text-primary transition-colors" type="button">
+<span class="material-symbols-outlined" data-icon="content_copy">content_copy</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Domains Lists -->
+<section class="grid grid-cols-2 gap-lg">
+<div class="space-y-md">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant uppercase">Blocklist</h3>
+<textarea class="input-base w-full p-md font-code text-code resize-none" placeholder="Enter domains..." rows="4">youtube.com
+twitter.com
+reddit.com
+facebook.com</textarea>
+</div>
+<div class="space-y-md">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant uppercase">Allowlist</h3>
+<textarea class="input-base w-full p-md font-code text-code resize-none" placeholder="Enter domains..." rows="4"></textarea>
+</div>
+</section>
+<!-- Final Actions -->
+<footer class="flex items-center gap-md pt-lg border-t border-outline-variant">
+<button class="bg-primary-container text-on-primary-container px-lg py-md rounded font-bold font-body-md text-body-md hover:opacity-90 active:scale-95 transition-all" type="button">
+            Save settings
+          </button>
+<button class="border border-[#2D3239] text-on-surface px-lg py-md rounded font-medium font-body-md text-body-md hover:bg-surface-container-high active:scale-95 transition-all" type="button">
+            Reset defaults
+          </button>
+</footer>
+</form>
+</div>
+</main>
+<script>
+    // Micro-interactions for buttons
+    document.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('mousedown', () => {
+        btn.style.opacity = '0.8';
+      });
+      btn.addEventListener('mouseup', () => {
+        btn.style.opacity = '1';
+      });
+    });
+
+    // Mock copy functionality
+    const copyBtn = document.querySelector('[data-icon="content_copy"]').parentElement;
+    copyBtn.addEventListener('click', () => {
+      const icon = copyBtn.querySelector('.material-symbols-outlined');
+      icon.textContent = 'check';
+      icon.classList.add('text-primary');
+      setTimeout(() => {
+        icon.textContent = 'content_copy';
+        icon.classList.remove('text-primary');
+      }, 2000);
+    });
+  </script>
+</body></html>

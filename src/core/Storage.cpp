@@ -21,6 +21,23 @@ SessionRecord rowToSession(sqlite3_stmt* stmt) {
   return rec;
 }
 
+FocusSegmentRecord rowToFocusSegment(sqlite3_stmt* stmt) {
+  FocusSegmentRecord rec;
+  rec.id = sqlite3_column_int64(stmt, 0);
+  rec.session_id = sqlite3_column_int64(stmt, 1);
+  rec.started_at = sqlite3_column_int64(stmt, 2);
+  if (sqlite3_column_type(stmt, 3) != SQLITE_NULL) {
+    rec.ended_at = sqlite3_column_int64(stmt, 3);
+  }
+  if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) {
+    rec.last_seen_at = sqlite3_column_int64(stmt, 4);
+  }
+  if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+    rec.end_reason = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+  }
+  return rec;
+}
+
 UrlEventRecord rowToUrlEvent(sqlite3_stmt* stmt) {
   UrlEventRecord rec;
   rec.id = sqlite3_column_int64(stmt, 0);
@@ -150,10 +167,26 @@ void Storage::migrate() {
       alarm_count           INTEGER
     );
   )SQL");
+  // Active focus-time spans (excludes lock / sleep / process-dead gaps).
+  execOrThrow(R"SQL(
+    CREATE TABLE IF NOT EXISTS focus_segments (
+      id            INTEGER PRIMARY KEY,
+      session_id    INTEGER NOT NULL REFERENCES sessions(id),
+      started_at    INTEGER NOT NULL,
+      ended_at      INTEGER,
+      last_seen_at  INTEGER,
+      end_reason    TEXT
+    );
+  )SQL");
   execOrThrow(
       "CREATE INDEX IF NOT EXISTS idx_url_events_session ON url_events(session_id);");
   execOrThrow(
       "CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(ended_at);");
+  execOrThrow(
+      "CREATE INDEX IF NOT EXISTS idx_focus_segments_session ON focus_segments(session_id);");
+  execOrThrow(
+      "CREATE INDEX IF NOT EXISTS idx_focus_segments_open ON focus_segments(ended_at);");
+  backfillFocusSegmentsUnlocked();
 }
 
 void Storage::open() {
@@ -179,6 +212,90 @@ void Storage::open() {
     throw StorageError(msg);
   }
   migrate();
+}
+
+void Storage::backfillFocusSegmentsUnlocked() {
+  // Legacy DBs: closed sessions without segments get one wall-clock segment (old behavior).
+  // Open sessions without segments get no segment and are left for reconcileOnLaunch /
+  // FocusSessionManager so multi-day orphans do not become huge focus times.
+  const char* sql = R"SQL(
+    INSERT INTO focus_segments(session_id, started_at, ended_at, last_seen_at, end_reason)
+    SELECT s.id, s.started_at, s.ended_at, s.ended_at, 'legacy_backfill'
+    FROM sessions s
+    WHERE s.ended_at IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM focus_segments f WHERE f.session_id = s.id);
+  )SQL";
+  execOrThrow(sql);
+}
+
+FocusSegmentRecord Storage::startFocusSegmentUnlocked(std::int64_t session_id,
+                                                      EpochSeconds started_at) {
+  // If already counting, return the open segment (idempotent).
+  {
+    sqlite3_stmt* find = nullptr;
+    const char* find_sql =
+        "SELECT id, session_id, started_at, ended_at, last_seen_at, end_reason "
+        "FROM focus_segments WHERE session_id = ? AND ended_at IS NULL "
+        "ORDER BY id DESC LIMIT 1;";
+    if (sqlite3_prepare_v2(db_, find_sql, -1, &find, nullptr) != SQLITE_OK) {
+      throw StorageError(sqlite3_errmsg(db_));
+    }
+    sqlite3_bind_int64(find, 1, session_id);
+    if (sqlite3_step(find) == SQLITE_ROW) {
+      auto existing = rowToFocusSegment(find);
+      sqlite3_finalize(find);
+      return existing;
+    }
+    sqlite3_finalize(find);
+  }
+
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "INSERT INTO focus_segments(session_id, started_at, ended_at, last_seen_at, end_reason) "
+      "VALUES(?, ?, NULL, ?, NULL);";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  sqlite3_bind_int64(stmt, 1, session_id);
+  sqlite3_bind_int64(stmt, 2, started_at);
+  sqlite3_bind_int64(stmt, 3, started_at);
+  if (sqlite3_step(stmt) != SQLITE_DONE) {
+    const std::string msg = sqlite3_errmsg(db_);
+    sqlite3_finalize(stmt);
+    throw StorageError(msg);
+  }
+  sqlite3_finalize(stmt);
+
+  FocusSegmentRecord rec;
+  rec.id = sqlite3_last_insert_rowid(db_);
+  rec.session_id = session_id;
+  rec.started_at = started_at;
+  rec.last_seen_at = started_at;
+  return rec;
+}
+
+int Storage::endOpenFocusSegmentsUnlocked(std::optional<std::int64_t> session_id,
+                                          EpochSeconds ended_at, const std::string& reason) {
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql = session_id
+                        ? "UPDATE focus_segments SET ended_at = ?, end_reason = ? "
+                          "WHERE session_id = ? AND ended_at IS NULL;"
+                        : "UPDATE focus_segments SET ended_at = ?, end_reason = ? "
+                          "WHERE ended_at IS NULL;";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  sqlite3_bind_int64(stmt, 1, ended_at);
+  sqlite3_bind_text(stmt, 2, reason.c_str(), -1, SQLITE_TRANSIENT);
+  if (session_id) {
+    sqlite3_bind_int64(stmt, 3, *session_id);
+  }
+  const int step = sqlite3_step(stmt);
+  sqlite3_finalize(stmt);
+  if (step != SQLITE_DONE) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  return sqlite3_changes(db_);
 }
 
 SessionRecord Storage::createSession(EpochSeconds started_at, bool focus_enabled) {
@@ -207,15 +324,19 @@ SessionRecord Storage::createSession(EpochSeconds started_at, bool focus_enabled
   rec.started_at = started_at;
   rec.ended_at = std::nullopt;
   rec.focus_enabled = focus_enabled;
+  // Begin counting immediately (unlocked path); pause APIs may end this segment later.
+  (void)startFocusSegmentUnlocked(rec.id, started_at);
   return rec;
 }
 
-bool Storage::endSession(std::int64_t session_id, EpochSeconds ended_at) {
+bool Storage::endSession(std::int64_t session_id, EpochSeconds ended_at,
+                         const std::string& segment_end_reason) {
   std::lock_guard lock(mu_);
   // Do not call isOpen() here — it also locks mu_ (non-recursive) and deadlocks.
   if (db_ == nullptr) {
     throw StorageError("database is not open");
   }
+  (void)endOpenFocusSegmentsUnlocked(session_id, ended_at, segment_end_reason);
   sqlite3_stmt* stmt = nullptr;
   const char* sql =
       "UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL;";
@@ -230,6 +351,143 @@ bool Storage::endSession(std::int64_t session_id, EpochSeconds ended_at) {
     throw StorageError(sqlite3_errmsg(db_));
   }
   return sqlite3_changes(db_) > 0;
+}
+
+FocusSegmentRecord Storage::startFocusSegment(std::int64_t session_id, EpochSeconds started_at) {
+  std::lock_guard lock(mu_);
+  if (db_ == nullptr) {
+    throw StorageError("database is not open");
+  }
+  return startFocusSegmentUnlocked(session_id, started_at);
+}
+
+int Storage::endOpenFocusSegments(std::optional<std::int64_t> session_id, EpochSeconds ended_at,
+                                  const std::string& reason) {
+  std::lock_guard lock(mu_);
+  if (db_ == nullptr) {
+    throw StorageError("database is not open");
+  }
+  return endOpenFocusSegmentsUnlocked(session_id, ended_at, reason);
+}
+
+int Storage::closeOrphanFocusSegments(const std::string& reason) {
+  std::lock_guard lock(mu_);
+  if (db_ == nullptr) {
+    throw StorageError("database is not open");
+  }
+  // Cap end at last heartbeat so multi-day dead time is excluded.
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "UPDATE focus_segments SET "
+      "ended_at = CASE "
+      "  WHEN last_seen_at IS NOT NULL AND last_seen_at >= started_at THEN last_seen_at "
+      "  ELSE started_at END, "
+      "end_reason = ? "
+      "WHERE ended_at IS NULL;";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  sqlite3_bind_text(stmt, 1, reason.c_str(), -1, SQLITE_TRANSIENT);
+  const int step = sqlite3_step(stmt);
+  sqlite3_finalize(stmt);
+  if (step != SQLITE_DONE) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  return sqlite3_changes(db_);
+}
+
+bool Storage::touchFocusSegment(std::int64_t session_id, EpochSeconds seen_at) {
+  std::lock_guard lock(mu_);
+  if (db_ == nullptr) {
+    throw StorageError("database is not open");
+  }
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "UPDATE focus_segments SET last_seen_at = ? "
+      "WHERE session_id = ? AND ended_at IS NULL;";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  sqlite3_bind_int64(stmt, 1, seen_at);
+  sqlite3_bind_int64(stmt, 2, session_id);
+  const int step = sqlite3_step(stmt);
+  sqlite3_finalize(stmt);
+  if (step != SQLITE_DONE) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  return sqlite3_changes(db_) > 0;
+}
+
+std::optional<FocusSegmentRecord> Storage::getOpenFocusSegment(std::int64_t session_id) const {
+  std::lock_guard lock(mu_);
+  if (db_ == nullptr) {
+    throw StorageError("database is not open");
+  }
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "SELECT id, session_id, started_at, ended_at, last_seen_at, end_reason "
+      "FROM focus_segments WHERE session_id = ? AND ended_at IS NULL "
+      "ORDER BY id DESC LIMIT 1;";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  sqlite3_bind_int64(stmt, 1, session_id);
+  std::optional<FocusSegmentRecord> result;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    result = rowToFocusSegment(stmt);
+  }
+  sqlite3_finalize(stmt);
+  return result;
+}
+
+std::vector<FocusSegmentRecord> Storage::listFocusSegmentsForSession(
+    std::int64_t session_id) const {
+  std::lock_guard lock(mu_);
+  if (db_ == nullptr) {
+    throw StorageError("database is not open");
+  }
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "SELECT id, session_id, started_at, ended_at, last_seen_at, end_reason "
+      "FROM focus_segments WHERE session_id = ? ORDER BY id ASC;";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  sqlite3_bind_int64(stmt, 1, session_id);
+  std::vector<FocusSegmentRecord> out;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    out.push_back(rowToFocusSegment(stmt));
+  }
+  sqlite3_finalize(stmt);
+  return out;
+}
+
+std::int64_t Storage::sumFocusSecondsForSession(std::int64_t session_id,
+                                                EpochSeconds now_for_open) const {
+  std::lock_guard lock(mu_);
+  if (db_ == nullptr) {
+    throw StorageError("database is not open");
+  }
+  // Closed: ended_at - started_at. Open: now_for_open - started_at (live UI while counting).
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "SELECT COALESCE(SUM(CASE "
+      "  WHEN ended_at IS NOT NULL AND ended_at > started_at THEN ended_at - started_at "
+      "  WHEN ended_at IS NULL AND ? > started_at THEN ? - started_at "
+      "  ELSE 0 END), 0) "
+      "FROM focus_segments WHERE session_id = ?;";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    throw StorageError(sqlite3_errmsg(db_));
+  }
+  sqlite3_bind_int64(stmt, 1, now_for_open);
+  sqlite3_bind_int64(stmt, 2, now_for_open);
+  sqlite3_bind_int64(stmt, 3, session_id);
+  std::int64_t total = 0;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    total = sqlite3_column_int64(stmt, 0);
+  }
+  sqlite3_finalize(stmt);
+  return total;
 }
 
 std::optional<SessionRecord> Storage::getSession(std::int64_t session_id) const {

@@ -1,0 +1,13 @@
+STATS_SNAPSHOT_V1
+window=Today
+sessions=1
+score=72
+focus=1h 40m
+productive=60% 1h 0m
+distracted=25% 25m
+phone=10% 10m
+days=2
+  day 07-05 score=72 focus=30m
+  day 07-06 score=55 focus=1h 10m
+recent=1
+  #42  1h 40m  72

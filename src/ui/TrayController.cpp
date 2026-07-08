@@ -1,16 +1,26 @@
 #include "ui/TrayController.hpp"
 
+#include "core/DefaultBlocklist.hpp"
+#include "core/LoginItem.hpp"
+#include "core/NativeMessaging.hpp"
 #include "core/PlatformPaths.hpp"
+#include "core/PlatformSessionState.hpp"
+#include "core/UrlClassifier.hpp"
+#include "ui/OnboardingWizard.hpp"
 
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QDateTime>
 #include <QDesktopServices>
+#include <QFile>
+#include <QFileDialog>
 #include <QGuiApplication>
 #include <QMenu>
 #include <QMessageBox>
 #include <QProcess>
 #include <QStyle>
+#include <QTextStream>
 #include <QUrl>
 #include <chrono>
 
@@ -29,6 +39,10 @@ EpochSeconds TrayController::wallNow() {
 TrayController::TrayController(QObject* parent) : QObject(parent) {}
 
 TrayController::~TrayController() {
+  // Stop accruing focus before tearing down (graceful exit; session may remain for resume).
+  if (focus_) {
+    focus_->prepareForProcessExit();
+  }
   stopBridge();
   releaseCamera();
   alarms_ui_.stop();
@@ -49,11 +63,14 @@ bool TrayController::initialize() {
   storage_->open();
   focus_ = std::make_unique<FocusSessionManager>(*storage_, settings_);
   focus_->syncFromStorage();
+  // Close orphan segments at last heartbeat; do not backfill time while app was dead.
+  focus_->reconcileOnLaunch(isInteractiveSessionAvailable());
   browser_ = std::make_unique<BrowserMonitor>(*storage_, *focus_, settings_);
   phone_ = std::make_unique<PhoneMonitor>(*storage_, *focus_, browser_->alarms(), settings_);
   vision_ = std::make_unique<VisionLoop>(*phone_, []() { return false; }, wallNow, 500);
 
   alarms_ui_.start();
+  configureAlarmSound();
   ensureBridge();
 
   if (!QSystemTrayIcon::isSystemTrayAvailable()) {
@@ -75,7 +92,60 @@ bool TrayController::initialize() {
   connect(tick_timer_, &QTimer::timeout, this, &TrayController::onTick);
   tick_timer_->start(33);
   updateTrayTooltip();
+
+  // First-run product wizard (permissions → extension → pair).
+  maybeRunOnboarding();
   return true;
+}
+
+void TrayController::maybeRunOnboarding() {
+  if (settings_.onboarding_completed) return;
+  OnboardingWizard wizard;
+  connect(&wizard, &OnboardingWizard::openSystemSettingsRequested, this,
+          &TrayController::openSystemSettingsPrivacy);
+  connect(&wizard, &OnboardingWizard::openExtensionStoreRequested, this,
+          &TrayController::openExtensionInstallPage);
+  connect(&wizard, &OnboardingWizard::connectBrowserRequested, this,
+          &TrayController::connectBrowserExtension);
+  wizard.exec();
+  if (wizard.completed()) {
+    settings_.onboarding_completed = true;
+
+    // Phase 5: register Chrome Native Messaging host (user-level, no admin).
+    const auto host = resolveNativeMessagingHostBinary();
+    const auto nm = installNativeMessagingHost(host);
+    settings_.native_messaging_installed = nm.ok;
+    if (!nm.ok && tray_) {
+      tray_->showMessage("focusGaze",
+                         QString("Native Messaging setup skipped: %1")
+                             .arg(QString::fromStdString(nm.message)),
+                         QSystemTrayIcon::Information, 5000);
+    }
+
+    // Optional open-at-login from the final onboarding step.
+    settings_.open_at_login = wizard.openAtLoginRequested();
+    if (settings_.open_at_login) {
+      std::string err;
+      if (!setOpenAtLogin(true, &err) && tray_) {
+        tray_->showMessage("focusGaze",
+                           QString("Could not enable open at login: %1")
+                               .arg(QString::fromStdString(err)),
+                           QSystemTrayIcon::Warning, 5000);
+        settings_.open_at_login = false;
+      }
+    }
+
+    saveSettings(settings_);
+  }
+}
+
+void TrayController::openSystemSettingsPrivacy() {
+#if defined(Q_OS_MACOS) || defined(Q_OS_MAC)
+  // Opens Privacy & Security pane (user navigates to Camera).
+  QProcess::startDetached("open", QStringList() << "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera");
+#else
+  QDesktopServices::openUrl(QUrl(QStringLiteral("https://support.apple.com/guide/mac-help/mh32356/mac")));
+#endif
 }
 
 void TrayController::rebuildMenu() {
@@ -414,7 +484,12 @@ void TrayController::refreshStatusPage() {
   if (!dashboard_) return;
   QString body;
   if (focus_) focus_->ensureConsistentWithStorage();
+  body += QString("Updated: %1\n\n")
+              .arg(QDateTime::currentDateTime().toString(Qt::ISODate));
   body += QString("Focus: %1\n").arg(focus_ && focus_->isFocusOn() ? "ON" : "OFF");
+  if (focus_ && focus_->activeSession()) {
+    body += QString("Active session id: %1\n").arg(focus_->activeSession()->id);
+  }
   body += QString("Camera monitoring: %1\n")
               .arg(settings_.camera_monitoring_enabled ? "ON" : "OFF");
   body += QString("Camera device index: %1\n").arg(settings_.camera_device_index);
@@ -423,32 +498,51 @@ void TrayController::refreshStatusPage() {
   body += QString("Bridge: %1 (port %2)\n")
               .arg(bridge_ok_ ? "running" : "stopped")
               .arg(settings_.bridge_port);
-  body += QString("Token: %1\n").arg(QString::fromStdString(settings_.bridge_token));
+  body += QString("Token: %1\n\n").arg(QString::fromStdString(settings_.bridge_token));
 #if defined(FOCUSGAZE_HAS_OPENCV)
   body += QString("Camera device open: %1\n")
               .arg(camera_ && camera_->isOpen() ? "yes" : "no");
-  body += QString("YOLO: %1\n").arg(camera_ && camera_->yoloReady() ? "yes" : "no");
+  body += QString("YOLO: %1\n\n").arg(camera_ && camera_->yoloReady() ? "yes" : "no");
 #else
-  body += "OpenCV: not built into this binary\n";
+  body += "OpenCV: not built into this binary\n\n";
 #endif
+  body += "— Phone (this Focus session) —\n";
   if (phone_) {
     const auto ph = phone_->status(wallNow());
-    body += QString("Phone in-use: %1\n").arg(ph.phone_visible ? "yes" : "no");
+    body += QString("Phone in-use right now: %1\n").arg(ph.phone_visible ? "yes" : "no");
     body += QString("Phone alarm: %1\n").arg(ph.phone_alarm ? "on" : "off");
-    body += QString("Phone cumulative (window): %1s / threshold %2s\n")
+    body += QString("Phone uses (pick-ups): %1\n").arg(ph.phone_use_count);
+    body += QString("Phone intervals logged: %1\n").arg(ph.phone_intervals_logged);
+    body += QString("Phone cumulative in window: %1s / %2s threshold\n")
                 .arg(ph.cumulative_visible_seconds)
                 .arg(ph.threshold_seconds);
+    body += QString("Rolling window length: %1s\n\n").arg(ph.window_seconds);
+  } else {
+    body += "Phone monitor unavailable\n\n";
   }
+  body += "— Browser —\n";
   if (browser_) {
     const auto st = browser_->status();
     body += QString("Alarm active: %1\n").arg(st.alarm_active ? "yes" : "no");
+    if (!st.alarm_reasons.empty()) {
+      body += "Alarm reasons: ";
+      for (std::size_t i = 0; i < st.alarm_reasons.size(); ++i) {
+        if (i) body += ", ";
+        body += QString::fromStdString(st.alarm_reasons[i]);
+      }
+      body += "\n";
+    }
     body += QString("Blocked tabs: %1\n").arg(static_cast<qulonglong>(st.blocked_tab_count));
     if (!st.last_domain.empty()) {
       body += QString("Last domain: %1 (%2)\n")
                   .arg(QString::fromStdString(st.last_domain),
                        QString::fromStdString(st.last_category));
     }
+    if (!st.last_url.empty()) {
+      body += QString("Last URL: %1\n").arg(QString::fromStdString(st.last_url));
+    }
   }
+  body += "\n(Live while this page is open · phone/browser data is recorded in the background.)";
   dashboard_->setStatusDetail(body);
 }
 
@@ -456,19 +550,198 @@ void TrayController::refreshStatsPage() {
   if (!dashboard_ || !storage_) return;
   try {
     ProductivityStats stats(*storage_);
-    auto s = stats.lastSessionSummary();
-    if (!s) {
-      dashboard_->setStatsDetail(
-          tr("No sessions yet.\n\nTurn Focus ON to start a session, then Turn Focus OFF "
-             "to end it and see a score here."));
-      return;
+    // Aggregate for preset chips or Stitch custom date range (from/to calendar days).
+    WindowStats window;
+    const StatsWindow selected = dashboard_->selectedStatsWindow();
+    if (selected == StatsWindow::Custom) {
+      EpochSeconds start = 0;
+      EpochSeconds end = 0;
+      if (dashboard_->selectedCustomRangeEpoch(start, end)) {
+        window = stats.computeRange(start, end, StatsWindow::Custom,
+                                    dashboard_->customRangeLabel().toStdString());
+      } else {
+        window.window = StatsWindow::Custom;
+        window.label = "Custom range";
+      }
+    } else {
+      window = stats.computeWindow(selected);
     }
-    dashboard_->setStatsDetail(QString::fromStdString(ProductivityStats::formatReport(*s)));
+
+    // While Focus is ON, fold the in-progress phone bout into live phone totals / score
+    // (DB only stores completed bouts until the phone is put down).
+    if (phone_ && focus_ && focus_->isFocusOn()) {
+      const auto ph = phone_->status(wallNow());
+      const auto open_bout = std::max<std::int64_t>(0, ph.open_bout_seconds);
+      if (open_bout > 0) {
+        window.phone_seconds += open_bout;
+        for (auto& row : window.sessions) {
+          const auto rec = storage_->getSession(row.session_id);
+          if (rec && !rec->ended_at.has_value()) {
+            row.phone_seconds += open_bout;
+            row.score = ProductivityStats::computeScore(row);
+            break;
+          }
+        }
+        window.score = ProductivityStats::computeScoreParts(
+            window.focus_seconds, window.productive_seconds, window.unproductive_seconds,
+            window.phone_seconds);
+      }
+    }
+
+    // Day chart uses real daily data for the selected window (Last 7 days = 7 bars, etc.).
+    std::vector<DailyStats> day_chart;
+    if (window.window == StatsWindow::LastSession) {
+      // Single-session window: one bar for the session's calendar day (if any).
+      if (window.range_start > 0) {
+        day_chart = stats.daysInRange(window.range_start, window.range_end > window.range_start
+                                                              ? window.range_end
+                                                              : window.range_start + 1);
+      }
+    } else if (window.range_start > 0 && window.range_end > window.range_start) {
+      day_chart = stats.daysInRange(window.range_start, window.range_end);
+    } else {
+      day_chart = stats.lastNDays(7);
+    }
+
+    dashboard_->setStatistics(window, day_chart);
   } catch (const std::exception& ex) {
-    dashboard_->setStatsDetail(tr("Failed to load session stats:\n%1").arg(ex.what()));
+    tray_->showMessage("focusGaze", QString("Stats error: %1").arg(ex.what()),
+                       QSystemTrayIcon::Warning, 4000);
   } catch (...) {
-    dashboard_->setStatsDetail(tr("Failed to load session stats (unknown error)."));
+    tray_->showMessage("focusGaze", "Failed to load session stats.", QSystemTrayIcon::Warning,
+                       4000);
   }
+}
+
+void TrayController::configureAlarmSound() {
+  alarms_ui_.setSoundEnabled(settings_.alarm_sound_enabled);
+  const std::string path = AlarmPresenter::resolveSystemSoundPath(settings_.alarm_sound);
+  // Play via QProcess on a detached process — reliable from the sound worker thread on macOS GUI apps.
+  alarms_ui_.setSoundPlayer([path]() {
+    if (path.empty()) return;
+#if defined(Q_OS_MACOS) || defined(Q_OS_MAC) || defined(__APPLE__)
+    QProcess::startDetached(QStringLiteral("afplay"),
+                            QStringList() << QString::fromStdString(path));
+#elif defined(Q_OS_WIN)
+    QProcess::startDetached(QStringLiteral("powershell"),
+                            QStringList()
+                                << QStringLiteral("-c")
+                                << QStringLiteral(
+                                       "(New-Object Media.SoundPlayer "
+                                       "'C:\\Windows\\Media\\Windows Exclamation.wav').PlaySync();"));
+#else
+    (void)path;
+#endif
+  });
+}
+
+void TrayController::testAlarmSound() {
+  configureAlarmSound();
+  if (!settings_.alarm_sound_enabled) {
+    tray_->showMessage("focusGaze", "Alarm sound is disabled in Settings — enable it to hear beeps.",
+                       QSystemTrayIcon::Warning, 4000);
+  }
+  alarms_ui_.playTestSound();
+  tray_->showMessage("focusGaze", "Playing test alarm sound…", QSystemTrayIcon::Information, 2000);
+}
+
+void TrayController::applySettings(Settings next, bool restart_bridge_if_needed) {
+  const bool port_changed = next.bridge_port != settings_.bridge_port;
+  const bool token_changed = next.bridge_token != settings_.bridge_token;
+  const bool camera_idx_changed = next.camera_device_index != settings_.camera_device_index;
+  const bool login_changed = next.open_at_login != settings_.open_at_login;
+  // Normalize domain lists when applying from any source.
+  next.blocklist = UrlClassifier::normalizeDomainList(next.blocklist);
+  next.allowlist = UrlClassifier::normalizeDomainList(next.allowlist);
+  settings_ = std::move(next);
+  saveSettings(settings_);
+  if (focus_) focus_->setSettings(settings_);
+  if (browser_) browser_->setSettings(settings_);
+  if (phone_) phone_->setSettings(settings_);
+  configureAlarmSound();
+  if (camera_idx_changed && settings_.camera_monitoring_enabled) {
+    releaseCamera();
+    ensureCamera();
+  }
+  if (login_changed) {
+    std::string err;
+    if (!setOpenAtLogin(settings_.open_at_login, &err) && tray_) {
+      tray_->showMessage("focusGaze",
+                         QString("Open at login: %1").arg(QString::fromStdString(err)),
+                         QSystemTrayIcon::Warning, 4000);
+    }
+  }
+  // Keep NM host manifests pointed at the current host binary (idempotent).
+  if (!settings_.native_messaging_installed) {
+    const auto host = resolveNativeMessagingHostBinary();
+    const auto nm = installNativeMessagingHost(host);
+    settings_.native_messaging_installed = nm.ok;
+    if (nm.ok) saveSettings(settings_);
+  }
+  if (restart_bridge_if_needed && (port_changed || token_changed)) {
+    stopBridge();
+    ensureBridge();
+  }
+  if (dashboard_) dashboard_->loadSettingsForm(settings_);
+  rebuildMenu();
+  updateTrayTooltip();
+  refreshDashboard();
+}
+
+void TrayController::saveSettingsFromDashboard() {
+  if (!dashboard_) return;
+  auto next = dashboard_->readSettingsForm(settings_);
+  if (next.phone_threshold_seconds < 1) next.phone_threshold_seconds = 60;
+  if (next.phone_window_seconds < 60) next.phone_window_seconds = 30 * 60;
+  applySettings(std::move(next), true);
+  tray_->showMessage("focusGaze", "Settings saved.", QSystemTrayIcon::Information, 2500);
+}
+
+void TrayController::resetSettingsFromDashboard() {
+  Settings next = Settings::defaults();
+  next.bridge_token = settings_.bridge_token; // keep pairing secret
+  next.bridge_port = settings_.bridge_port;
+  next.onboarding_completed = settings_.onboarding_completed;
+  next.blocklist = seedBlocklistDomains();
+  applySettings(std::move(next), false);
+  if (dashboard_) dashboard_->loadSettingsForm(settings_);
+  tray_->showMessage("focusGaze", "Settings reset to product defaults (token kept).",
+                     QSystemTrayIcon::Information, 3000);
+}
+
+void TrayController::exportStatsCsv() {
+  if (!storage_) return;
+  ProductivityStats stats(*storage_);
+  const auto recent = stats.recentSessions(50);
+  const QString path = QFileDialog::getSaveFileName(
+      dashboard_, tr("Export sessions CSV"), QStringLiteral("focusgaze-sessions.csv"),
+      tr("CSV (*.csv)"));
+  if (path.isEmpty()) return;
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    QMessageBox::warning(dashboard_, tr("Export failed"), tr("Could not write file."));
+    return;
+  }
+  QTextStream out(&f);
+  out << QString::fromStdString(ProductivityStats::toCsvMany(recent));
+  tray_->showMessage("focusGaze", "CSV exported.", QSystemTrayIcon::Information, 2000);
+}
+
+void TrayController::exportStatsJson() {
+  if (!storage_) return;
+  ProductivityStats stats(*storage_);
+  const auto recent = stats.recentSessions(50);
+  const QString path = QFileDialog::getSaveFileName(
+      dashboard_, tr("Export sessions JSON"), QStringLiteral("focusgaze-sessions.json"),
+      tr("JSON (*.json)"));
+  if (path.isEmpty()) return;
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    QMessageBox::warning(dashboard_, tr("Export failed"), tr("Could not write file."));
+    return;
+  }
+  f.write(QByteArray::fromStdString(ProductivityStats::toJsonMany(recent)));
+  tray_->showMessage("focusGaze", "JSON exported.", QSystemTrayIcon::Information, 2000);
 }
 
 void TrayController::showStats() {
@@ -589,7 +862,14 @@ void TrayController::ensureDashboard() {
   connect(dashboard_, &DashboardWindow::refreshStatsRequested, this, [this]() {
     refreshStatsPage();
   });
+  connect(dashboard_, &DashboardWindow::saveSettingsRequested, this,
+          &TrayController::saveSettingsFromDashboard);
+  connect(dashboard_, &DashboardWindow::resetSettingsRequested, this,
+          &TrayController::resetSettingsFromDashboard);
+  // CSV/JSON export remains available from the tray menu (exportStatsCsv / exportStatsJson).
+  connect(dashboard_, &DashboardWindow::testAlarmSoundRequested, this, &TrayController::testAlarmSound);
   populateCameraDevices();
+  dashboard_->loadSettingsForm(settings_);
 }
 
 void TrayController::showDashboard() {
@@ -607,9 +887,16 @@ void TrayController::refreshDashboard() {
   bool phone_vis = false;
   bool alarm = false;
   QString alarm_text;
-  if (phone_ && focus_ && focus_->isFocusOn()) {
+  QString phone_card_extra;
+  if (phone_) {
     const auto ph = phone_->status(wallNow());
     phone_vis = ph.phone_visible;
+    phone_card_extra =
+        tr("%1 uses · %2s / %3s window")
+            .arg(ph.phone_use_count)
+            .arg(ph.cumulative_visible_seconds)
+            .arg(ph.threshold_seconds);
+    if (ph.phone_alarm) phone_card_extra += tr(" · ALARM");
   }
   if (browser_) {
     const auto st = browser_->status();
@@ -636,12 +923,14 @@ void TrayController::refreshDashboard() {
   }
   dashboard_->setStatus(focus_ && focus_->isFocusOn(), bridge_ok_, settings_.bridge_port,
                         settings_.camera_monitoring_enabled, phone_vis, alarm, alarm_text,
-                        session_line, settings_.camera_device_index, cameraDeviceLabel());
-  // Keep status page fresh if open.
-  refreshStatusPage();
+                        session_line, settings_.camera_device_index, cameraDeviceLabel(),
+                        phone_card_extra);
 }
 
 void TrayController::quitApp() {
+  if (focus_) {
+    focus_->prepareForProcessExit();
+  }
   stopBridge();
   releaseCamera();
   alarms_ui_.stop();
@@ -653,8 +942,36 @@ void TrayController::quitApp() {
 void TrayController::onTick() {
   if (!phone_ || !browser_) return;
 
-  // Background phone detection: camera monitoring ON + Focus ON — no preview required.
-  if (settings_.camera_monitoring_enabled && focus_ && focus_->isFocusOn()) {
+  // ~1 Hz: pause/resume focus segments on lock; split across sleep gaps via heartbeat.
+  // Idle without input still counts when unlocked (by design).
+  if (focus_) {
+    if (++presence_tick_divider_ >= 30) {
+      presence_tick_divider_ = 0;
+      focus_->onPresenceTick(isInteractiveSessionAvailable());
+    }
+  }
+
+  // Live-refresh Status / Statistics while those pages are visible (~1 Hz; timer is ~30 Hz).
+  // Recording always runs below regardless of which page is open.
+  if (dashboard_ && dashboard_->isVisible()) {
+    if (++stats_refresh_divider_ >= 30) {
+      stats_refresh_divider_ = 0;
+      const auto page = dashboard_->currentPage();
+      if (page == DashboardWindow::Page::Stats) {
+        refreshStatsPage();
+      } else if (page == DashboardWindow::Page::Status) {
+        refreshStatusPage();
+      } else if (page == DashboardWindow::Page::Overview) {
+        // Keep overview cards (phone / alarms) current without full stats recompute.
+        refreshDashboard();
+      }
+    }
+  } else {
+    stats_refresh_divider_ = 0;
+  }
+
+  // Background phone detection while Focus is counting (unlocked). Pause on lock/sleep.
+  if (settings_.camera_monitoring_enabled && focus_ && focus_->isCounting()) {
 #if defined(FOCUSGAZE_HAS_OPENCV)
     if (!ensureCamera()) {
       // Device lost / permission revoked mid-session — disable monitoring to match reality.

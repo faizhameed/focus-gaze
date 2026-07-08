@@ -53,6 +53,12 @@ public slots:
   void connectBrowserExtension();
   /// User picked a different capture device in the dashboard.
   void setCameraDeviceIndex(int index);
+  void openSystemSettingsPrivacy();
+  void saveSettingsFromDashboard();
+  void resetSettingsFromDashboard();
+  void exportStatsCsv();
+  void exportStatsJson();
+  void testAlarmSound();
   void quitApp();
 
 private slots:
@@ -68,12 +74,20 @@ private:
   void releaseCamera();
   void persistSettings();
   void ensureDashboard();
+  void maybeRunOnboarding();
   void refreshDashboard();
   void refreshStatusPage();
   void refreshStatsPage();
   void populateCameraDevices();
+  void applySettings(Settings next, bool restart_bridge_if_needed);
+  void configureAlarmSound();
   QString cameraDeviceLabel() const;
   static EpochSeconds wallNow();
+
+  /// Throttle live stats refresh on the dashboard (~1 Hz).
+  int stats_refresh_divider_{0};
+  /// Throttle lock/sleep presence ticks (~1 Hz; timer is ~30 Hz).
+  int presence_tick_divider_{0};
 
   Settings settings_;
   std::unique_ptr<Storage> storage_;

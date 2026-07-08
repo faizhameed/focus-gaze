@@ -1,6 +1,18 @@
 #include "core/PhoneMonitor.hpp"
 
+#include <chrono>
+
 namespace focusgaze {
+namespace {
+
+EpochSeconds wallNowSeconds() {
+  return static_cast<EpochSeconds>(
+      std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count());
+}
+
+} // namespace
 
 PhoneMonitor::PhoneMonitor(Storage& storage, FocusSessionManager& focus, AlarmController& alarms,
                            Settings settings)
@@ -18,15 +30,33 @@ void PhoneMonitor::setSettings(const Settings& settings) {
 }
 
 bool PhoneMonitor::focusOn() const {
-  return storage_.getActiveSession().has_value() || focus_.isFocusOn();
+  // Count / enforce phone policy only while a focus segment is actively counting
+  // (Focus ON and unlocked). Lock/sleep pauses accrual and alarms.
+  if (!(storage_.getActiveSession().has_value() || focus_.isFocusOn())) {
+    return false;
+  }
+  return focus_.isCounting();
 }
 
 void PhoneMonitor::onFocusTurnedOff() {
   std::lock_guard lock(mutex_);
+  // Flush open interval so the last use is recorded for session stats.
+  if (last_visible_ && interval_start_) {
+    try {
+      std::optional<std::int64_t> sid;
+      if (auto s = focus_.activeSession()) sid = s->id;
+      else if (auto open = storage_.getActiveSession()) sid = open->id;
+      storage_.insertPhoneEvent(sid, *interval_start_, wallNowSeconds(), 1.0);
+      ++phone_intervals_logged_;
+    } catch (...) {
+    }
+  }
   tracker_.reset();
   alarms_.setPhoneAlarm(false);
   last_visible_ = false;
   interval_start_.reset();
+  phone_use_count_ = 0;
+  phone_intervals_logged_ = 0;
 }
 
 void PhoneMonitor::forceClearAlarm() {
@@ -35,6 +65,7 @@ void PhoneMonitor::forceClearAlarm() {
   alarms_.setPhoneAlarm(false);
   last_visible_ = false;
   interval_start_.reset();
+  // Keep use counters — user dismissed alarm, not end of session.
 }
 
 void PhoneMonitor::reset() {
@@ -42,6 +73,8 @@ void PhoneMonitor::reset() {
   tracker_.reset();
   last_visible_ = false;
   interval_start_.reset();
+  phone_use_count_ = 0;
+  phone_intervals_logged_ = 0;
 }
 
 void PhoneMonitor::sample(EpochSeconds now, bool phone_visible) {
@@ -51,6 +84,8 @@ void PhoneMonitor::sample(EpochSeconds now, bool phone_visible) {
     alarms_.setPhoneAlarm(false);
     last_visible_ = false;
     interval_start_.reset();
+    phone_use_count_ = 0;
+    phone_intervals_logged_ = 0;
     return;
   }
 
@@ -64,11 +99,13 @@ void PhoneMonitor::sample(EpochSeconds now, bool phone_visible) {
         sid = open->id;
       }
       storage_.insertPhoneEvent(sid, *interval_start_, now, 1.0);
+      ++phone_intervals_logged_;
     } catch (...) {
     }
     interval_start_.reset();
   } else if (!last_visible_ && phone_visible) {
     interval_start_ = now;
+    ++phone_use_count_; // each distinct pick-up / in-use bout
   }
 
   tracker_.sample(now, phone_visible);
@@ -94,6 +131,11 @@ PhoneStatus PhoneMonitor::status(EpochSeconds now) const {
   st.window_seconds = tracker_.windowSeconds();
   // Alarm only while in-use; if tracker not currently visible, alarm is off.
   st.phone_alarm = tracker_.currentlyVisible() && tracker_.shouldAlarmBeActive(now);
+  st.phone_use_count = phone_use_count_;
+  st.phone_intervals_logged = phone_intervals_logged_;
+  if (interval_start_ && last_visible_ && now >= *interval_start_) {
+    st.open_bout_seconds = now - *interval_start_;
+  }
   return st;
 }
 

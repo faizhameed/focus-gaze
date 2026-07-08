@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  focusGaze app logo — master vector mark
+  Design system aligned with Google Stitch focusGaze UI tokens
+  (design/README.md): background #0B0F14, accent teal #2DD4BF, violet #8B5CF6
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="focusGaze">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141A22"/>
+      <stop offset="100%" stop-color="#0B0F14"/>
+    </linearGradient>
+    <radialGradient id="violetGlow" cx="50%" cy="48%" r="42%">
+      <stop offset="0%" stop-color="#8B5CF6" stop-opacity="0.45"/>
+      <stop offset="55%" stop-color="#8B5CF6" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="irisRing" x1="30%" y1="20%" x2="70%" y2="90%">
+      <stop offset="0%" stop-color="#F8FAFC"/>
+      <stop offset="100%" stop-color="#94A3B8"/>
+    </linearGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="12" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- App-icon rounded square (squircle-ish) -->
+  <rect x="64" y="64" width="896" height="896" rx="200" ry="200" fill="url(#bg)"/>
+
+  <!-- Soft violet ambient (Stitch secondary) -->
+  <circle cx="512" cy="500" r="280" fill="url(#violetGlow)"/>
+
+  <!-- Eye outline — teal primary accent -->
+  <g filter="url(#softGlow)">
+    <path
+      d="M180 512
+         C300 300, 724 300, 844 512
+         C724 724, 300 724, 180 512 Z"
+      fill="none"
+      stroke="#2DD4BF"
+      stroke-width="36"
+      stroke-linejoin="round"
+      stroke-linecap="round"/>
+  </g>
+
+  <!-- Iris / sclera disc -->
+  <circle cx="512" cy="512" r="148" fill="url(#irisRing)"/>
+  <circle cx="512" cy="512" r="148" fill="none" stroke="#E2E8F0" stroke-width="10"/>
+
+  <!-- Pupil -->
+  <circle cx="512" cy="512" r="78" fill="#0B0F14"/>
+
+  <!-- Teal specular (focus / live signal) -->
+  <circle cx="548" cy="478" r="18" fill="#2DD4BF"/>
+  <circle cx="468" cy="548" r="8" fill="#5EEAD4" opacity="0.55"/>
+</svg>
