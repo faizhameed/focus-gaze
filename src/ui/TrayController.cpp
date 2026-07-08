@@ -1,7 +1,10 @@
 #include "ui/TrayController.hpp"
 
 #include "core/DefaultBlocklist.hpp"
+#include "core/LoginItem.hpp"
+#include "core/NativeMessaging.hpp"
 #include "core/PlatformPaths.hpp"
+#include "core/PlatformSessionState.hpp"
 #include "core/UrlClassifier.hpp"
 #include "ui/OnboardingWizard.hpp"
 
@@ -36,6 +39,10 @@ EpochSeconds TrayController::wallNow() {
 TrayController::TrayController(QObject* parent) : QObject(parent) {}
 
 TrayController::~TrayController() {
+  // Stop accruing focus before tearing down (graceful exit; session may remain for resume).
+  if (focus_) {
+    focus_->prepareForProcessExit();
+  }
   stopBridge();
   releaseCamera();
   alarms_ui_.stop();
@@ -56,6 +63,8 @@ bool TrayController::initialize() {
   storage_->open();
   focus_ = std::make_unique<FocusSessionManager>(*storage_, settings_);
   focus_->syncFromStorage();
+  // Close orphan segments at last heartbeat; do not backfill time while app was dead.
+  focus_->reconcileOnLaunch(isInteractiveSessionAvailable());
   browser_ = std::make_unique<BrowserMonitor>(*storage_, *focus_, settings_);
   phone_ = std::make_unique<PhoneMonitor>(*storage_, *focus_, browser_->alarms(), settings_);
   vision_ = std::make_unique<VisionLoop>(*phone_, []() { return false; }, wallNow, 500);
@@ -101,6 +110,31 @@ void TrayController::maybeRunOnboarding() {
   wizard.exec();
   if (wizard.completed()) {
     settings_.onboarding_completed = true;
+
+    // Phase 5: register Chrome Native Messaging host (user-level, no admin).
+    const auto host = resolveNativeMessagingHostBinary();
+    const auto nm = installNativeMessagingHost(host);
+    settings_.native_messaging_installed = nm.ok;
+    if (!nm.ok && tray_) {
+      tray_->showMessage("focusGaze",
+                         QString("Native Messaging setup skipped: %1")
+                             .arg(QString::fromStdString(nm.message)),
+                         QSystemTrayIcon::Information, 5000);
+    }
+
+    // Optional open-at-login from the final onboarding step.
+    settings_.open_at_login = wizard.openAtLoginRequested();
+    if (settings_.open_at_login) {
+      std::string err;
+      if (!setOpenAtLogin(true, &err) && tray_) {
+        tray_->showMessage("focusGaze",
+                           QString("Could not enable open at login: %1")
+                               .arg(QString::fromStdString(err)),
+                           QSystemTrayIcon::Warning, 5000);
+        settings_.open_at_login = false;
+      }
+    }
+
     saveSettings(settings_);
   }
 }
@@ -516,8 +550,22 @@ void TrayController::refreshStatsPage() {
   if (!dashboard_ || !storage_) return;
   try {
     ProductivityStats stats(*storage_);
-    // Aggregate for the chip the user selected (Last session / Today / Last 7 days / …).
-    WindowStats window = stats.computeWindow(dashboard_->selectedStatsWindow());
+    // Aggregate for preset chips or Stitch custom date range (from/to calendar days).
+    WindowStats window;
+    const StatsWindow selected = dashboard_->selectedStatsWindow();
+    if (selected == StatsWindow::Custom) {
+      EpochSeconds start = 0;
+      EpochSeconds end = 0;
+      if (dashboard_->selectedCustomRangeEpoch(start, end)) {
+        window = stats.computeRange(start, end, StatsWindow::Custom,
+                                    dashboard_->customRangeLabel().toStdString());
+      } else {
+        window.window = StatsWindow::Custom;
+        window.label = "Custom range";
+      }
+    } else {
+      window = stats.computeWindow(selected);
+    }
 
     // While Focus is ON, fold the in-progress phone bout into live phone totals / score
     // (DB only stores completed bouts until the phone is put down).
@@ -601,6 +649,7 @@ void TrayController::applySettings(Settings next, bool restart_bridge_if_needed)
   const bool port_changed = next.bridge_port != settings_.bridge_port;
   const bool token_changed = next.bridge_token != settings_.bridge_token;
   const bool camera_idx_changed = next.camera_device_index != settings_.camera_device_index;
+  const bool login_changed = next.open_at_login != settings_.open_at_login;
   // Normalize domain lists when applying from any source.
   next.blocklist = UrlClassifier::normalizeDomainList(next.blocklist);
   next.allowlist = UrlClassifier::normalizeDomainList(next.allowlist);
@@ -613,6 +662,21 @@ void TrayController::applySettings(Settings next, bool restart_bridge_if_needed)
   if (camera_idx_changed && settings_.camera_monitoring_enabled) {
     releaseCamera();
     ensureCamera();
+  }
+  if (login_changed) {
+    std::string err;
+    if (!setOpenAtLogin(settings_.open_at_login, &err) && tray_) {
+      tray_->showMessage("focusGaze",
+                         QString("Open at login: %1").arg(QString::fromStdString(err)),
+                         QSystemTrayIcon::Warning, 4000);
+    }
+  }
+  // Keep NM host manifests pointed at the current host binary (idempotent).
+  if (!settings_.native_messaging_installed) {
+    const auto host = resolveNativeMessagingHostBinary();
+    const auto nm = installNativeMessagingHost(host);
+    settings_.native_messaging_installed = nm.ok;
+    if (nm.ok) saveSettings(settings_);
   }
   if (restart_bridge_if_needed && (port_changed || token_changed)) {
     stopBridge();
@@ -864,6 +928,9 @@ void TrayController::refreshDashboard() {
 }
 
 void TrayController::quitApp() {
+  if (focus_) {
+    focus_->prepareForProcessExit();
+  }
   stopBridge();
   releaseCamera();
   alarms_ui_.stop();
@@ -874,6 +941,15 @@ void TrayController::quitApp() {
 
 void TrayController::onTick() {
   if (!phone_ || !browser_) return;
+
+  // ~1 Hz: pause/resume focus segments on lock; split across sleep gaps via heartbeat.
+  // Idle without input still counts when unlocked (by design).
+  if (focus_) {
+    if (++presence_tick_divider_ >= 30) {
+      presence_tick_divider_ = 0;
+      focus_->onPresenceTick(isInteractiveSessionAvailable());
+    }
+  }
 
   // Live-refresh Status / Statistics while those pages are visible (~1 Hz; timer is ~30 Hz).
   // Recording always runs below regardless of which page is open.
@@ -894,8 +970,8 @@ void TrayController::onTick() {
     stats_refresh_divider_ = 0;
   }
 
-  // Background phone detection: camera monitoring ON + Focus ON — no preview required.
-  if (settings_.camera_monitoring_enabled && focus_ && focus_->isFocusOn()) {
+  // Background phone detection while Focus is counting (unlocked). Pause on lock/sleep.
+  if (settings_.camera_monitoring_enabled && focus_ && focus_->isCounting()) {
 #if defined(FOCUSGAZE_HAS_OPENCV)
     if (!ensureCamera()) {
       // Device lost / permission revoked mid-session — disable monitoring to match reality.

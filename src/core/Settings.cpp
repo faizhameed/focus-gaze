@@ -58,6 +58,8 @@ std::string Settings::toJsonString(int indent) const {
   j["bridge_port"] = bridge_port;
   j["bridge_token"] = bridge_token;
   j["onboarding_completed"] = onboarding_completed;
+  j["open_at_login"] = open_at_login;
+  j["native_messaging_installed"] = native_messaging_installed;
   return j.dump(indent);
 }
 
@@ -114,6 +116,12 @@ bool Settings::fromJsonString(const std::string& text) {
   }
   if (j.contains("onboarding_completed") && j["onboarding_completed"].is_boolean()) {
     next.onboarding_completed = j["onboarding_completed"].get<bool>();
+  }
+  if (j.contains("open_at_login") && j["open_at_login"].is_boolean()) {
+    next.open_at_login = j["open_at_login"].get<bool>();
+  }
+  if (j.contains("native_messaging_installed") && j["native_messaging_installed"].is_boolean()) {
+    next.native_messaging_installed = j["native_messaging_installed"].get<bool>();
   }
 
   // Basic validation

@@ -4,6 +4,7 @@
 #include "core/FocusSession.hpp"
 #include "core/PhoneMonitor.hpp"
 #include "core/PlatformPaths.hpp"
+#include "core/PlatformSessionState.hpp"
 #include "core/ProductivityStats.hpp"
 #include "core/Settings.hpp"
 #include "core/Storage.hpp"
@@ -135,8 +136,9 @@ int main(int argc, char** argv) {
     AppContext app;
 
     if (cmd == "reconcile") {
-      app.focus.reconcileOnLaunch();
-      std::cout << "reconciled focus=" << (app.focus.isFocusOn() ? "on" : "off") << "\n";
+      app.focus.reconcileOnLaunch(focusgaze::isInteractiveSessionAvailable());
+      std::cout << "reconciled focus=" << (app.focus.isFocusOn() ? "on" : "off")
+                << " counting=" << (app.focus.isCounting() ? "yes" : "no") << "\n";
       return 0;
     }
 
@@ -270,12 +272,15 @@ int main(int argc, char** argv) {
         return 1;
       }
       vision.start();
+      // Drop dead-time from prior runs; optional resume starts a new counting segment.
+      app.focus.reconcileOnLaunch(focusgaze::isInteractiveSessionAvailable());
 
       const bool focus_on =
           app.focus.isFocusOn() || app.storage.getActiveSession().has_value();
       std::cout << "focusGaze bridge on http://127.0.0.1:" << app.settings.bridge_port << "\n"
                 << "token=" << app.settings.bridge_token << "\n"
                 << "focus=" << (focus_on ? "on" : "off") << "\n"
+                << "counting=" << (app.focus.isCounting() ? "yes" : "no") << "\n"
                 << "camera=" << (camera_ok ? (fake.empty() ? "webcam" : "fake_video") : "off")
                 << "\nyolo=" << (camera && camera->yoloReady() ? "on" : "off") << "\n"
                 << "opencv_ui=main_thread_only (single window)\n"
@@ -285,7 +290,15 @@ int main(int argc, char** argv) {
                 << std::flush;
 
       bool last_phone_log = false;
+      auto last_presence = std::chrono::steady_clock::now();
       while (!g_stop.load()) {
+        // ~1 Hz lock/sleep presence for focus segments (same policy as GUI).
+        const auto steady_now = std::chrono::steady_clock::now();
+        if (steady_now - last_presence >= std::chrono::seconds(1)) {
+          last_presence = steady_now;
+          app.focus.onPresenceTick(focusgaze::isInteractiveSessionAvailable());
+        }
+
 #if defined(FOCUSGAZE_HAS_OPENCV)
         // Capture + YOLO on main thread (prevents AVFoundation + highgui segfaults).
         if (camera && camera->isOpen()) {
@@ -328,6 +341,7 @@ int main(int argc, char** argv) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
       }
+      app.focus.prepareForProcessExit();
       vision.stop();
       camera_preview.close();
       alarms_ui.stop();

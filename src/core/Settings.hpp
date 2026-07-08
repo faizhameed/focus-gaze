@@ -50,6 +50,12 @@ struct Settings {
   /// When false, show first-run onboarding wizard on next GUI launch.
   bool onboarding_completed{false};
 
+  /// Open focusGaze automatically when the user logs in (macOS login item).
+  bool open_at_login{false};
+
+  /// Chrome Native Messaging host manifests installed for this user (Phase 5).
+  bool native_messaging_installed{false};
+
   static Settings defaults();
 
   /// Load from JSON file. Missing file => defaults (ok). Corrupt file => false and leaves *this unchanged.

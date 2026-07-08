@@ -280,16 +280,25 @@ Phone vision uses **YOLO11n** ONNX (COCO class **67** = cell phone). See [`model
 
 ---
 
-## Packaging (macOS DMG)
+## Packaging (macOS DMG) — Phase 5
 
 ```bash
 ./scripts/package_macos_dmg.sh
 # → dist/focusGaze-<version>.dmg  (ad-hoc sign by default)
+# → build-package/focusGaze.app with Qt (macdeployqt), model, focusgaze-nm-host
 ```
 
 For **Developer ID signing + notarization**, see [`scripts/sign_and_notarize.md`](scripts/sign_and_notarize.md).
 
 Uses a separate `build-package/` tree so it does not overwrite the dev `build/` CMake options.
+
+**Phase 5 install checklist**
+
+1. Drag `focusGaze.app` → `/Applications` from the DMG.  
+2. First launch: complete the wizard (permissions tip → extension → Connect browser).  
+3. Optional: **Open at login** on the last wizard step (or Settings).  
+4. App registers a user-level **Chrome Native Messaging** host (`com.focusgaze.host`) so the extension can discover the bridge without pasting a token when the host is present.  
+5. Day-to-day: tray **Focus ON/OFF**; pairing is one-time per Chrome profile.
 
 ## First-run onboarding
 
@@ -298,9 +307,9 @@ On the first GUI launch (`onboarding_completed` is false in settings), a wizard 
 1. Welcome  
 2. Camera privacy tip (+ open System Settings)  
 3. Install Chrome extension  
-4. **Connect browser** (auto-pair)
+4. **Connect browser** (auto-pair) + optional open-at-login  
 
-Skip is available; completing or skipping sets `onboarding_completed`.
+Skip is available; completing or skipping sets `onboarding_completed` and attempts Native Messaging host install.
 
 ## Troubleshooting
 
@@ -325,10 +334,11 @@ Skip is available; completing or skipping sets `onboarding_completed`.
 
 ## Roadmap (high level)
 
-- [ ] Chrome Web Store listing + polished onboarding  
-- [ ] Signed / notarized macOS distribution  
-- [ ] Windows adapters parity  
+- [x] Phase 5 Mac installable product (`.app` / DMG, onboarding, NM host, open-at-login)  
+- [ ] Chrome Web Store public listing (set `FOCUSGAZE_EXTENSION_STORE_URL`)  
+- [ ] Signed / notarized distribution on a Developer ID account (script ready)  
+- [ ] Phase 6 Windows adapters parity  
 - [ ] Stronger native notifications / alarm overlay  
-- [ ] Optional Native Messaging host as alternate pairing path  
+- [ ] Sparkle auto-update (deferred)
 
 Contributions and feedback welcome once the public remote is set up.

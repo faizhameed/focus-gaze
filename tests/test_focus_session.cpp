@@ -97,7 +97,7 @@ TEST_CASE("reconcileOnLaunch ends orphan when resume disabled", "[focus]") {
   FakeClock clock;
   clock.now = 99;
   FocusSessionManager mgr(db, settings, [&] { return clock(); });
-  mgr.reconcileOnLaunch();
+  mgr.reconcileOnLaunch(/*interactive=*/true);
 
   REQUIRE_FALSE(mgr.isFocusOn());
   const auto ended = db.getSession(created.id);
@@ -114,11 +114,13 @@ TEST_CASE("reconcileOnLaunch keeps session when resume enabled", "[focus]") {
   Settings settings = Settings::defaults();
   settings.resume_focus_on_launch = true;
   FocusSessionManager mgr(db, settings, [] { return focusgaze::EpochSeconds{1}; });
-  mgr.reconcileOnLaunch();
+  mgr.reconcileOnLaunch(/*interactive=*/true);
 
   REQUIRE(mgr.isFocusOn());
   REQUIRE(mgr.activeSession()->id == created.id);
   REQUIRE_FALSE(db.getSession(created.id)->ended_at.has_value());
+  // Orphan open segment closed at last_seen; a new counting segment starts when interactive.
+  REQUIRE(mgr.isCounting());
 }
 
 TEST_CASE("multiple focus cycles create multiple session rows", "[focus]") {

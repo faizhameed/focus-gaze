@@ -4,7 +4,7 @@
 **Type:** Local desktop productivity guardian (C++20)  
 **Primary platform:** macOS (installable)  
 **Secondary platform:** Windows (same core, OS adapters)  
-**Status:** Greenfield — repository starts empty; this document is the source of truth for build-out.
+**Status:** Mac product through **Phase 5** (installable `.app` / DMG, onboarding, Native Messaging host, focus segments). Phase 6 (Windows) not started.
 
 ---
 

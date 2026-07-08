@@ -80,6 +80,7 @@ const char* ProductivityStats::windowLabel(StatsWindow w) {
     case StatsWindow::LastWeek: return "Last week";
     case StatsWindow::Last7Days: return "Last 7 days";
     case StatsWindow::Month: return "This month";
+    case StatsWindow::Custom: return "Custom range";
   }
   return "Last session";
 }
@@ -100,6 +101,23 @@ EpochSeconds ProductivityStats::localMidnightEpoch(const std::string& ymd) {
   return static_cast<EpochSeconds>(t);
 }
 
+/// Seconds of [t0, t1) that fall inside any counting segment (open → now_for_open).
+static std::int64_t overlapWithSegments(EpochSeconds t0, EpochSeconds t1,
+                                        const std::vector<FocusSegmentRecord>& segments,
+                                        EpochSeconds now_for_open) {
+  if (t1 <= t0) return 0;
+  std::int64_t total = 0;
+  for (const auto& seg : segments) {
+    const EpochSeconds s0 = seg.started_at;
+    const EpochSeconds s1 = seg.ended_at.value_or(now_for_open);
+    if (s1 <= s0) continue;
+    const EpochSeconds a = std::max(t0, s0);
+    const EpochSeconds b = std::min(t1, s1);
+    if (b > a) total += (b - a);
+  }
+  return total;
+}
+
 SessionStats ProductivityStats::computeSession(std::int64_t session_id) const {
   SessionStats out;
   out.session_id = session_id;
@@ -108,25 +126,29 @@ SessionStats ProductivityStats::computeSession(std::int64_t session_id) const {
     return out;
   }
   out.started_at = session->started_at;
-  // Open sessions keep recording in the background; treat "now" as the end so live
-  // duration/score stay meaningful while Focus is still ON (UI refresh is optional).
+  // Open sessions: "now" is only used for live UI and open segment ends — not for
+  // inventing wall-clock focus across lock/sleep (those are non-segment gaps).
+  const auto now = static_cast<EpochSeconds>(
+      std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count());
   if (session->ended_at.has_value()) {
     out.ended_at = *session->ended_at;
   } else {
-    const auto now = std::chrono::duration_cast<std::chrono::seconds>(
-                         std::chrono::system_clock::now().time_since_epoch())
-                         .count();
-    out.ended_at = static_cast<EpochSeconds>(now);
+    out.ended_at = now;
   }
   if (out.ended_at < out.started_at) {
     out.ended_at = out.started_at;
   }
-  out.focus_seconds = out.ended_at - out.started_at;
 
+  // Authoritative focus duration = sum of counting segments (not session wall span).
+  out.focus_seconds = storage_.sumFocusSecondsForSession(session_id, now);
+
+  const auto segments = storage_.listFocusSegmentsForSession(session_id);
   auto events = storage_.listUrlEventsForSession(session_id, 100000);
   out.url_event_count = static_cast<int>(events.size());
 
-  // Attribute time from event_i.ts to event_{i+1}.ts (or session end) to event_i.category
+  // Attribute URL time only while a counting segment was active (exclude lock/sleep gaps).
   for (std::size_t i = 0; i < events.size(); ++i) {
     const auto& ev = events[i];
     if (ev.category == "blocked") {
@@ -143,7 +165,8 @@ SessionStats ProductivityStats::computeSession(std::int64_t session_id) const {
     if (t1 <= t0) {
       continue;
     }
-    const std::int64_t dur = t1 - t0;
+    const std::int64_t dur = overlapWithSegments(t0, t1, segments, now);
+    if (dur <= 0) continue;
     if (ev.category == "blocked") {
       out.social_seconds += dur;
     } else if (ev.category == "allow") {
@@ -153,7 +176,7 @@ SessionStats ProductivityStats::computeSession(std::int64_t session_id) const {
     }
   }
 
-  // Unaccounted focus time → neutral
+  // Unaccounted *counted* focus time → neutral (never inflate with lock/sleep gaps).
   const std::int64_t accounted =
       out.social_seconds + out.productive_seconds + out.neutral_seconds;
   if (out.focus_seconds > accounted) {
@@ -161,6 +184,10 @@ SessionStats ProductivityStats::computeSession(std::int64_t session_id) const {
   }
 
   out.phone_seconds = storage_.sumPhoneSecondsForSession(session_id);
+  // Cap phone to focus window so paused gaps cannot dominate score alone.
+  if (out.phone_seconds > out.focus_seconds) {
+    out.phone_seconds = out.focus_seconds;
+  }
   out.score = computeScore(out);
   return out;
 }
@@ -415,6 +442,10 @@ WindowStats ProductivityStats::computeWindow(StatsWindow window) const {
       end = now + 1;
       break;
     }
+    case StatsWindow::Custom:
+      // Custom ranges must be built with computeRange(start, end, Custom, label)
+      // from the Statistics date picker (from/to calendar days).
+      return WindowStats{};
     case StatsWindow::LastSession:
       break;
   }

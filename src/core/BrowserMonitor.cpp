@@ -38,6 +38,8 @@ bool BrowserMonitor::handleEvent(const BrowserUrlEvent& event) {
   const EpochSeconds ts = event.ts.value_or(now());
   // Prefer DB as source of truth so `focusgaze on` in another process works while `serve` runs.
   const bool focus_on = storage_.getActiveSession().has_value() || focus_.isFocusOn();
+  // Sticky alarms only while actively counting (unlocked); still log URL events if focus on.
+  const bool enforce = focus_on && focus_.isCounting();
 
   if (event.event == UrlEventType::Closed) {
     if (event.tab_id.empty()) {
@@ -109,6 +111,12 @@ bool BrowserMonitor::handleEvent(const BrowserUrlEvent& event) {
   }
 
   if (!focus_on) {
+    alarms_.clearAllSocialTabs();
+    return true;
+  }
+
+  // Locked / sleep-paused: keep session, but do not raise sticky social alarms.
+  if (!enforce) {
     alarms_.clearAllSocialTabs();
     return true;
   }

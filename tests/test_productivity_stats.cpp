@@ -226,3 +226,32 @@ TEST_CASE("computeWindow Today and Last7Days aggregate real sessions", "[stats]"
   REQUIRE(expected > 0.0);
   REQUIRE(expected < 100.0);
 }
+
+TEST_CASE("computeRange supports custom inclusive calendar window", "[stats][custom-range]") {
+  ScopedDataRoot scope;
+  Storage db(scope.path() / "t.db");
+  db.open();
+
+  const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+  const auto started = static_cast<focusgaze::EpochSeconds>(now - 200);
+  const auto session = db.createSession(started, true);
+  db.endSession(session.id, static_cast<focusgaze::EpochSeconds>(now - 50));
+
+  ProductivityStats stats(db);
+  const std::string today = ProductivityStats::todayLocalYmd();
+  const auto start = ProductivityStats::localMidnightEpoch(today);
+  const auto end = start + 24 * 3600;
+  const auto custom =
+      stats.computeRange(start, end, focusgaze::StatsWindow::Custom, today + " → " + today);
+  REQUIRE(custom.window == focusgaze::StatsWindow::Custom);
+  REQUIRE(custom.label.find(today) != std::string::npos);
+  REQUIRE(custom.session_count >= 1);
+  REQUIRE(custom.focus_seconds >= 100);
+
+  // Empty label path still returns a valid structure for the UI.
+  const auto empty_preset = stats.computeWindow(focusgaze::StatsWindow::Custom);
+  REQUIRE(empty_preset.session_count == 0);
+  REQUIRE(empty_preset.focus_seconds == 0);
+}

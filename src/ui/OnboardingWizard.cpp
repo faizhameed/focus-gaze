@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include <QCheckBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -149,7 +150,9 @@ QWidget* OnboardingWizard::buildConnect() {
   title->setObjectName("Title");
   auto* body = new QLabel(
       tr("Link this app to the extension with one click. A short-lived page opens in "
-         "Google Chrome and stores the bridge token automatically — no copy/paste."),
+         "Google Chrome and stores the bridge token automatically — no copy/paste.\n\n"
+         "Finishing also registers a local Chrome Native Messaging host (optional helper) "
+         "so the extension can discover this app on this Mac."),
       w);
   body->setObjectName("Body");
   body->setWordWrap(true);
@@ -157,12 +160,20 @@ QWidget* OnboardingWizard::buildConnect() {
   pair_btn->setObjectName("Primary");
   QObject::connect(pair_btn, &QPushButton::clicked, this,
                    &OnboardingWizard::connectBrowserRequested);
+  open_at_login_check_ = new QCheckBox(tr("Open focusGaze when I log in to this Mac"), w);
+  open_at_login_check_->setChecked(false);
   lay->addWidget(title);
   lay->addWidget(body);
   lay->addSpacing(8);
   lay->addWidget(pair_btn, 0, Qt::AlignLeft);
+  lay->addSpacing(12);
+  lay->addWidget(open_at_login_check_);
   lay->addStretch(1);
   return w;
+}
+
+bool OnboardingWizard::openAtLoginRequested() const {
+  return open_at_login_check_ && open_at_login_check_->isChecked();
 }
 
 void OnboardingWizard::setStep(int step) {

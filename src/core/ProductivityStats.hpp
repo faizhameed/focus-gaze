@@ -34,7 +34,7 @@ struct DailyStats {
   double score{0.0};
 };
 
-/// Preset windows for the Statistics page.
+/// Preset windows for the Statistics page (plus Custom date range from the UI).
 enum class StatsWindow {
   LastSession,
   Today,
@@ -43,6 +43,8 @@ enum class StatsWindow {
   LastWeek,
   Last7Days,
   Month,
+  /// Inclusive local calendar range chosen in the Statistics date picker.
+  Custom,
 };
 
 /// Aggregated stats over a time window (or a single open/closed session).

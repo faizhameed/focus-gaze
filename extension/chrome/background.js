@@ -7,6 +7,8 @@
 
 const DEFAULT_PORT = 18765;
 const DEFAULT_TOKEN = "";
+/** Must match focusgaze::kNativeHostName in the desktop app. */
+const NATIVE_HOST = "com.focusgaze.host";
 
 /**
  * Load bridge config from synced extension storage.
@@ -19,6 +21,66 @@ async function getConfig() {
     enabled: true,
   });
 }
+
+/**
+ * Optional Phase 5 path: ask the desktop Native Messaging host for bridge port/token
+ * when the extension has no token yet (host must be registered by the app).
+ * @returns {Promise<boolean>} true if storage was updated
+ */
+async function tryPairViaNativeMessaging() {
+  if (!chrome.runtime.connectNative) return false;
+  return new Promise((resolve) => {
+    let settled = false;
+    let port;
+    try {
+      port = chrome.runtime.connectNative(NATIVE_HOST);
+    } catch (_) {
+      resolve(false);
+      return;
+    }
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      try {
+        port.disconnect();
+      } catch (_) {}
+      resolve(ok);
+    };
+    port.onMessage.addListener((msg) => {
+      if (!msg || !msg.ok || !msg.token) {
+        done(false);
+        return;
+      }
+      const token = String(msg.token);
+      const p = Number(msg.port) || DEFAULT_PORT;
+      chrome.storage.sync
+        .set({ token, port: p, enabled: true })
+        .then(() => done(true))
+        .catch(() => done(false));
+    });
+    port.onDisconnect.addListener(() => done(false));
+    try {
+      port.postMessage({ type: "getBridge" });
+    } catch (_) {
+      done(false);
+    }
+    setTimeout(() => done(false), 2500);
+  });
+}
+
+/** On startup / install, try NM bootstrap if unpaired. */
+async function ensurePaired() {
+  const cfg = await getConfig();
+  if (cfg.token) return;
+  await tryPairViaNativeMessaging();
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  ensurePaired();
+});
+chrome.runtime.onStartup.addListener(() => {
+  ensurePaired();
+});
 
 /**
  * POST a browser event to the local focusGaze bridge.

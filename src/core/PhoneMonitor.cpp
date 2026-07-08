@@ -30,7 +30,12 @@ void PhoneMonitor::setSettings(const Settings& settings) {
 }
 
 bool PhoneMonitor::focusOn() const {
-  return storage_.getActiveSession().has_value() || focus_.isFocusOn();
+  // Count / enforce phone policy only while a focus segment is actively counting
+  // (Focus ON and unlocked). Lock/sleep pauses accrual and alarms.
+  if (!(storage_.getActiveSession().has_value() || focus_.isFocusOn())) {
+    return false;
+  }
+  return focus_.isCounting();
 }
 
 void PhoneMonitor::onFocusTurnedOff() {
